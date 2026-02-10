@@ -1,17 +1,34 @@
 # BB-7
 
-A terminal-based LLM code assistant for Neovim. You control exactly which files the LLM sees — no autonomous file access, no shell commands, no magic.
+BB-7 is a Neovim Plugin for LLM-assisted but non-agentic software development. It offers a lightweight chat interface and explicit context selection. 
+
+## Why does this exist?
+
+I'm amazed what can be done with Claude Code, Codex etc., but for quite a few tasks, these agents are not the right tool for me. Most importantly, there are projects where I want to write at least 99% of the code myself. And for quick discussions, learning new concepts using small code snippets, local code reviews, or very targeted small edits on a large code base, agents feel too slow and cumbersome to me. I always preferred the focused UX of a web chat (shoutout to t3.chat), but copy/pasting code from Neovim into the browser and explaining my project over and over again has an incredibly high friction. BB-7 solves this problem for me. 
+
+[screenshot]
+
+1) List of chats
+2) Files in the active chat's context
+3) Balance, Cost, Configuration Info
+4) Current chat or selected file contents
+5) Chat input
 
 ## Features
 
-- **Explicit context control**: Add files to context manually, like staging in git
-- **Streaming responses**: See LLM output as it's generated
-- **Output review**: LLM changes go to an output directory for review before applying
-- **Diff preview**: View unified diff of LLM changes in the preview pane
-- **Partial apply**: Cherry-pick changes using vim's native diff mode or your git client
-- **Multiple chats**: Maintain separate conversations per task
-- **Model selection**: Choose from available OpenRouter models with pricing info
-- **Token estimation**: See context size and potential savings
+- Explicit context control: Add files to chat contexts manually, like staging in git
+- Sandboxed write operations: The assistant modifies local copies of the files you added as "writable". You apply these suggested changes manually. 
+- Multiple chats per project
+- Lazygit-inspired UI
+- Quick model selection (OpenRouter): You can select the model for every message
+- Forked chats: Branch off conversations at previous user messages to focus on something else or to try other models
+- Adjustable reasoning level
+- No agentic behavior whatsoever (I consider that a feature)
+- Everything happens inside the BB-7 window, no "AI stuff" happens outside of it
+
+Everything above the following line was written by me; everything below it, as well as almost everything else in the repository, is LLM output.
+
+---
 
 ## Requirements
 

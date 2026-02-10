@@ -378,12 +378,9 @@ end
 -- Config file path
 local CONFIG_PATH = vim.fn.expand('~/.config/bb7/config.json')
 
--- Config template matching Go defaults
+-- Config template — only api_key is required; all other fields have defaults
 local CONFIG_TEMPLATE = [[{
-  "api_key": "YOUR_API_KEY_HERE",
-  "base_url": "https://openrouter.ai/api/v1",
-  "default_model": "anthropic/claude-sonnet-4",
-  "title_model": "anthropic/claude-3-haiku"
+  "api_key": "YOUR_API_KEY_HERE"
 }
 ]]
 
