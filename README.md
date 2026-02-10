@@ -42,7 +42,7 @@ Everything above the following line was written by me; everything below it, as w
 
 ```lua
 {
-  "Ammerfest/bb7",
+  "Ammerfest/bb7.nvim",
   build = "./install.sh",
   config = function()
     require("bb7").setup()
