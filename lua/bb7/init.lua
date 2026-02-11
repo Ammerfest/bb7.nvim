@@ -91,6 +91,16 @@ function M.setup(opts)
     end)
   end, { desc = 'Initialize BB7 in current directory' })
 
+  -- BB7NewChat - Create a new chat
+  vim.api.nvim_create_user_command('BB7NewChat', function()
+    local client = require('bb7.client')
+    if not client.is_initialized() then
+      log.info('Not initialized - open BB-7 first')
+      return
+    end
+    require('bb7.panes.chats').new_chat()
+  end, { desc = 'Create a new BB-7 chat' })
+
   -- Parse path:start:end syntax, returns path, start_line, end_line (or nil for full file)
   local function parse_section_arg(arg)
     -- Match path:start:end where start and end are numbers

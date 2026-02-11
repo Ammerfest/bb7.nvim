@@ -65,6 +65,7 @@ func (s *State) ChatNew(name string) (*Chat, error) {
 	}
 
 	s.ActiveChat = chat
+	s.saveActiveChatID(chat.ID)
 	return chat, nil
 }
 
@@ -131,6 +132,7 @@ func (s *State) ChatSelect(id string) (*Chat, error) {
 	}
 
 	s.ActiveChat = chat
+	s.saveActiveChatID(chat.ID)
 	return chat, nil
 }
 
@@ -147,6 +149,7 @@ func (s *State) ChatDelete(id string) error {
 
 	if s.ActiveChat != nil && s.ActiveChat.ID == id {
 		s.ActiveChat = nil
+		s.saveActiveChatID("")
 	}
 
 	if err := os.RemoveAll(chatDir); err != nil {
@@ -653,6 +656,7 @@ func (s *State) ForkChat(chatID string, forkIndex int) (*ForkChatResult, error) 
 
 	// Set as active chat
 	s.ActiveChat = newChat
+	s.saveActiveChatID(newChat.ID)
 
 	return &ForkChatResult{
 		NewChatID:          newID,

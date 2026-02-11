@@ -282,7 +282,7 @@ local function select_chat(callback)
 end
 
 -- Create a new chat
-local function new_chat()
+function M.new_chat()
   -- Generate name with current timestamp
   local name = 'Untitled chat - ' .. os.date('%Y-%m-%d %H:%M')
 
@@ -302,6 +302,8 @@ local function new_chat()
       log.error('Invalid response from chat_new')
       return
     end
+
+    log.info('Created: ' .. name)
 
     -- Refresh chat list and select the new chat
     M.refresh(function()
@@ -499,7 +501,7 @@ function M.setup_keymaps(buf)
   -- Actions
   vim.keymap.set('n', '<Space>', select_chat, opts)
   vim.keymap.set('n', '<CR>', select_chat, opts)
-  vim.keymap.set('n', 'n', new_chat, opts)
+  vim.keymap.set('n', 'n', M.new_chat, opts)
   vim.keymap.set('n', 'r', rename_chat, opts)
   vim.keymap.set('n', 'd', delete_chat, opts)
   vim.keymap.set('n', 'p', toggle_pin_selected, opts)

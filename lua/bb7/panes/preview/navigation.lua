@@ -180,15 +180,12 @@ function M.fork_chat()
     vim.cmd('redraw')
   end
 
-  -- Ask for confirmation (use vim.fn.input to avoid triggering telescope)
-  local confirm = vim.fn.input('Fork from this message? (y/n): ')
+  local confirmed = vim.fn.confirm('Fork from this message?', '&Yes\n&No', 2)
 
-  -- Clear the highlight and command line
+  -- Clear the highlight
   vim.api.nvim_buf_clear_namespace(shared.state.buf, highlight_ns, 0, -1)
-  vim.cmd('echo ""')
 
-  if confirm ~= 'y' and confirm ~= 'Y' then
-    log.info('Fork cancelled')
+  if confirmed ~= 1 then
     return
   end
 
@@ -263,13 +260,11 @@ function M.edit_chat_message()
     vim.cmd('redraw')
   end
 
-  local confirm = vim.fn.input('Edit this message and discard everything below? (y/n): ')
+  local confirmed = vim.fn.confirm('Edit this message and discard everything below?', '&Yes\n&No', 2)
 
   vim.api.nvim_buf_clear_namespace(shared.state.buf, highlight_ns, 0, -1)
-  vim.cmd('echo ""')
 
-  if confirm ~= 'y' and confirm ~= 'Y' then
-    log.info('Edit cancelled')
+  if confirmed ~= 1 then
     return
   end
 

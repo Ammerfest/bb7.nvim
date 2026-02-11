@@ -4,7 +4,7 @@ BB-7 is a Neovim Plugin for LLM-assisted but non-agentic software development. I
 
 ## Why does this exist?
 
-I'm amazed what can be done with Claude Code, Codex etc., but for quite a few tasks, these agents are not the right tool for me. Most importantly, there are projects where I want to write at least 99% of the code myself. And for quick discussions, learning new concepts using small code snippets, local code reviews, or very targeted small edits on a large code base, agents feel too slow and cumbersome to me. I always preferred the focused UX of a web chat (shoutout to t3.chat), but copy/pasting code from Neovim into the browser and explaining my project over and over again has an incredibly high friction. BB-7 solves this problem for me. 
+I'm amazed what can be done with Claude Code, Codex etc., but for quite a few tasks, these agents are not the right tool for me. Most importantly, there are projects where I want to write at least 99% of the code myself. And for quick discussions, learning new concepts using small code snippets, local code reviews, or very targeted small edits on a large code base, agents feel too slow and cumbersome to me. I always preferred the focused UX of a web chat, but copy/pasting code from Neovim into the browser and explaining my project over and over again has an incredibly high friction. BB-7 solves this problem for me. 
 
 <img width="2883" height="1676" alt="Screenshot" src="https://github.com/user-attachments/assets/23448d3a-d446-4bbf-a7fa-07275fe70817" />
 
@@ -26,6 +26,10 @@ I'm amazed what can be done with Claude Code, Codex etc., but for quite a few ta
 - No agentic behavior whatsoever (I consider that a feature)
 - Everything happens inside the BB-7 window, no "AI stuff" happens outside of it
 
+## Acknowledgements
+
+Thanks to [lazygit](https://github.com/jesseduffield/lazygit), [opencode](https://github.com/anomalyco/opencode/), [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim/), and T3.chat for inspiration.
+
 Everything above the following line was written by me; everything below it, as well as almost everything else in the repository, is LLM output.
 
 ---
@@ -45,7 +49,14 @@ Everything above the following line was written by me; everything below it, as w
   "Ammerfest/bb7.nvim",
   build = "./install.sh",
   config = function()
-    require("bb7").setup()
+    require("bb7").setup({
+      nav_left = '<C-h>',
+      nav_down = '<C-j>',
+      nav_up = '<C-k>',
+      nav_right = '<C-l>',
+    })
+    vim.keymap.set('n', '<leader>bb', '<cmd>BB7<cr>', { desc = 'Open [BB]7' })
+    vim.keymap.set('n', '<leader>ba', '<cmd>BB7Add<cr>', { desc = '[B]B7 [A]dd File' })
   end,
 }
 ```
@@ -81,12 +92,23 @@ Optional settings:
 
 ## Usage
 
+### Workflow
+
+0. **Initialize**: `:BB7Init` in your project root (only once per project)
+1. **Open BB-7**: `:BB7`
+2. **New chat**: Press `n` in the Chats pane
+3. **Add files**: `:BB7Add` from any buffer
+4. **Chat**: Write in the Input pane (`g5`), send with `<S-CR>`
+5. **Review**: Responses appear in Preview. `gf` for file view, `gd` for diff
+6. **Apply**: In Context pane, `p` to apply a file or `P` for all
+
 ### Commands
 
 | Command | Description |
 |---------|-------------|
 | `:BB7` | Toggle BB-7 UI |
 | `:BB7Init` | Initialize BB-7 in the current directory |
+| `:BB7NewChat` | Create a new chat |
 | `:BB7Add [path[:start:end]]` | Add file or section to context (default: current buffer) |
 | `:BB7AddReadonly [path]` | Add file to context as read-only (default: current buffer) |
 | `:BB7Remove [path]` | Remove file from context |
@@ -180,14 +202,6 @@ The send key can be changed with `vim.g.bb7_send_key = 'enter'` (makes `<CR>` se
 | `~` | Out of sync (local changed since added) |
 | `~M` | Conflict (both local and LLM modified) |
 
-### Workflow
-
-1. **Open BB-7**: `:BB7` (or set your own keymap)
-2. **Add files**: `:BB7Add` from any buffer, or use the Context pane (`g2`)
-3. **Chat**: Go to Input pane (`g5`), type your message, send with `<S-CR>`
-4. **Review**: LLM responses appear in Preview pane. Use `gf` for file view, `gd` for diff
-5. **Apply**: In Context pane, `p` to apply a file or `P` for all modified files
-
 ### Partial Apply (Cherry-Picking Changes)
 
 BB-7 doesn't include a built-in merge tool — use the diff tools you already know.
@@ -205,20 +219,7 @@ Standard diff commands (`]c`/`[c` to jump, `do`/`dp` to obtain/put changes) work
 
 ## Configuration
 
-```lua
-require("bb7").setup({
-  -- Path to bb7 binary (nil = auto-detect)
-  bin = nil,
-
-  -- Direct pane navigation keys (false = disabled)
-  nav_left = false,   -- e.g., '<C-h>'
-  nav_down = false,   -- e.g., '<C-j>'
-  nav_up = false,     -- e.g., '<C-k>'
-  nav_right = false,  -- e.g., '<C-l>'
-})
-```
-
-Chat colors are customized via `BB7*` highlight groups, and icons via `vim.g.bb7_*` variables. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for details, along with instruction files and Telescope integration.
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for all options, including highlight groups, icons, and instruction files.
 
 ## Models
 

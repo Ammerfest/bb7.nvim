@@ -11,8 +11,9 @@ import (
 const chatIndexVersion = 1
 
 type chatIndex struct {
-	Version int           `json:"version"`
-	Chats   []ChatSummary `json:"chats"`
+	Version      int           `json:"version"`
+	ActiveChatID string        `json:"active_chat_id,omitempty"`
+	Chats        []ChatSummary `json:"chats"`
 }
 
 func (s *State) chatIndexPath() string {
@@ -152,6 +153,17 @@ func (s *State) updateChatIndexEntry(chat *Chat) error {
 	}
 
 	return s.writeChatIndex(idx)
+}
+
+// saveActiveChatID persists the active chat ID to the index.
+// Best-effort; errors are silently ignored.
+func (s *State) saveActiveChatID(id string) {
+	idx, err := s.ensureChatIndex()
+	if err != nil {
+		return
+	}
+	idx.ActiveChatID = id
+	s.writeChatIndex(idx)
 }
 
 // removeChatIndexEntry removes a chat from the index.

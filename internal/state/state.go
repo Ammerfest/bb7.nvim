@@ -76,6 +76,13 @@ func (s *State) Init(projectRoot string) error {
 	}
 
 	s.ProjectRoot = projectRoot
+
+	// Best-effort restore of last active chat.
+	idx, err := s.loadChatIndex()
+	if err == nil && idx.ActiveChatID != "" {
+		s.ChatSelect(idx.ActiveChatID)
+	}
+
 	return nil
 }
 
