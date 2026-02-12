@@ -286,6 +286,7 @@ func actionMutatesChatState(action string) bool {
 		"chat_rename",
 		"fork_chat",
 		"save_draft",
+		"save_chat_settings",
 		"context_add",
 		"context_add_section",
 		"context_update",
@@ -317,6 +318,7 @@ func actionUsesChatState(action string) bool {
 		"chat_rename",
 		"fork_chat",
 		"save_draft",
+		"save_chat_settings",
 		"context_add",
 		"context_add_section",
 		"context_update",
@@ -362,6 +364,7 @@ func actionBlockedDuringStream(action string) bool {
 		"apply_file_as",
 		"output_delete",
 		"save_draft",
+		"save_chat_settings",
 		"prepare_instructions":
 		return true
 	default:
@@ -471,6 +474,7 @@ func handleRequest(line string) {
 			"name":              appState.ActiveChat.Name,
 			"created":           appState.ActiveChat.Created,
 			"model":             appState.ActiveChat.Model,
+			"reasoning_effort":  appState.ActiveChat.ReasoningEffort,
 			"draft":             appState.ActiveChat.Draft,
 			"messages":          appState.ActiveChat.Messages,
 			"instructions_info": appState.GetInstructionsInfo(),
@@ -574,6 +578,23 @@ func handleRequest(line string) {
 		}
 		draft, _ := req["draft"].(string)
 		appState.ActiveChat.Draft = draft
+		if err := appState.SaveActiveChat(); err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok"})
+
+	case "save_chat_settings":
+		if appState.ActiveChat == nil {
+			respond(reqID, errorResponse(state.ErrNoActiveChat))
+			return
+		}
+		if model, ok := req["model"].(string); ok && model != "" {
+			appState.ActiveChat.Model = model
+		}
+		if effort, ok := req["reasoning_effort"].(string); ok {
+			appState.ActiveChat.ReasoningEffort = effort
+		}
 		if err := appState.SaveActiveChat(); err != nil {
 			respond(reqID, errorResponse(err))
 			return
@@ -990,9 +1011,6 @@ func handleSend(reqID string, req map[string]any) {
 	if model == "" {
 		model = appConfig.DefaultModel
 	}
-
-	// Update chat's model to remember the selection
-	appState.ActiveChat.Model = model
 
 	// Build instructions block (fail fast if invalid)
 	instructionsBlock, err = appState.BuildInstructionsBlock()

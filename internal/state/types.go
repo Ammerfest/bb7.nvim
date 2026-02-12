@@ -149,13 +149,14 @@ type ContextFile struct {
 
 // Chat represents a single chat session with its messages and context.
 type Chat struct {
-	ID           string        `json:"id"`
-	Name         string        `json:"name"`
-	Created      time.Time     `json:"created"`
-	Model        string        `json:"model"`
-	Draft        string        `json:"draft,omitempty"` // Unsent message draft
-	ContextFiles []ContextFile `json:"context_files"`
-	Messages     []Message     `json:"messages"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Created         time.Time     `json:"created"`
+	Model           string        `json:"model"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	Draft           string        `json:"draft,omitempty"` // Unsent message draft
+	ContextFiles    []ContextFile `json:"context_files"`
+	Messages        []Message     `json:"messages"`
 }
 
 // ChatSummary is a lightweight representation for listing chats.

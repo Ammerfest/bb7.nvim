@@ -74,7 +74,7 @@ local function update_hints()
   else
     local hint_text = get_pane_hints(state.active_pane)
     local view_hints = get_view_hints()
-    local global_hints = 'Panes: g1-g5 | Cycle: <Tab>'
+    local global_hints = 'Panes: g1-g5 | Cycle: <Tab> | Close: <C-c>'
 
     -- Build full hint: pane hints | view hints | global hints
     local parts = {}
@@ -224,6 +224,16 @@ local function setup_common_keymaps(pane_id, buf)
   -- Close with Esc (vim-native, no need to document)
   vim.keymap.set('n', '<Esc>', function()
     M.close()
+  end, opts)
+
+  -- Close with C-c (works from any pane, any mode)
+  vim.keymap.set({ 'n', 'i' }, '<C-c>', function()
+    M.close()
+  end, opts)
+
+  -- Cancel stream with C-x (works from any pane)
+  vim.keymap.set('n', '<C-x>', function()
+    panes_input.cancel_send()
   end, opts)
 
   -- C-w direction navigation: move to neighbor pane or no-op
@@ -646,6 +656,10 @@ function M.open()
       on_model_changed = function(model_id)
         panes_input.set_model(model_id)
         update_pane_borders()
+        -- Persist model to active chat
+        if client.is_initialized() then
+          client.send({ action = 'save_chat_settings', model = model_id })
+        end
       end,
     })
 
@@ -656,19 +670,6 @@ function M.open()
     end
 
     -- Load chat list and restore active chat if backend has one
-    local function last_user_model(chat)
-      if not chat or not chat.messages then
-        return nil
-      end
-      for i = #chat.messages, 1, -1 do
-        local msg = chat.messages[i]
-        if msg.role == 'user' and msg.model and msg.model ~= '' then
-          return msg.model
-        end
-      end
-      return nil
-    end
-
     local function apply_chat_to_panes(chat)
       panes_preview.set_chat(chat)
       panes_context.set_chat(chat)
@@ -676,11 +677,34 @@ function M.open()
       panes_input.set_chat_active(true)
       panes_input.set_draft(chat.draft)
 
-      -- Use the chat's last user model if available, otherwise keep current.
-      local chat_model = last_user_model(chat) or chat.model
-      if chat_model and chat_model ~= '' then
-        models.set_current(chat_model, { persist = false })
+      -- Restore model from chat (single source of truth)
+      if chat.model and chat.model ~= '' then
+        models.set_current(chat.model, { persist = false })
       end
+
+      -- Restore reasoning level from chat
+      panes_input.set_reasoning_level(chat.reasoning_effort or 'none')
+
+      -- Update footer to reflect restored reasoning
+      update_pane_borders()
+
+      -- Restore preview scroll position (deferred from restore_ui_state)
+      if session_state.restore_preview_scroll then
+        session_state.restore_preview_scroll = false
+        if session_state.preview_autoscroll == false and session_state.pane_views[4] then
+          vim.schedule(function()
+            session.restore_pane_view(4)
+          end)
+        end
+      end
+
+      -- Re-restore input pane cursor (set_draft above replaced the buffer content)
+      if session_state.pane_views[5] then
+        vim.schedule(function()
+          session.restore_pane_view(5)
+        end)
+      end
+
     end
 
     local function restore_active_chat_if_any()
@@ -704,9 +728,13 @@ function M.open()
 
     local function restore_ui_state()
       -- Restore view state for all panes (cursor/scroll positions)
+      -- Skip pane 4 (preview) — its content loads asynchronously via apply_chat_to_panes
       for pane_id = 1, 5 do
-        session.restore_pane_view(pane_id)
+        if pane_id ~= 4 then
+          session.restore_pane_view(pane_id)
+        end
       end
+      session_state.restore_preview_scroll = true
 
       -- Determine which pane to focus
       local target_pane = 1  -- Default: chats pane
@@ -761,6 +789,12 @@ function M.close()
       M.close()
     end)
     return
+  end
+
+  -- Exit insert mode before saving state so the editor doesn't remain
+  -- in insert mode after close
+  if vim.fn.mode() == 'i' or vim.fn.mode() == 'I' then
+    vim.cmd('stopinsert')
   end
 
   -- Save session state before cleanup

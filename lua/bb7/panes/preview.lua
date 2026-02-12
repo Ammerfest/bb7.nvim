@@ -104,8 +104,8 @@ local function setup_keymaps(buf)
   vim.keymap.set('n', 'K', navigation.show_message_info, opts)
 
   -- Cancel current request
-  vim.keymap.set('n', '<C-c>', function()
-    require('bb7.client').cancel_active_stream()
+  vim.keymap.set('n', '<C-x>', function()
+    require('bb7.panes.input').cancel_send()
   end, opts)
 end
 
@@ -295,7 +295,7 @@ function M.get_hints()
   -- Mode-specific hints
   if state.mode == 'chat' then
     if state.streaming then
-      return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Cancel: <C-c>'
+      return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Cancel: <C-x>'
     end
     return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Info: K | Fork: <C-f> | Edit: <C-e>'
   elseif state.mode == 'file' then

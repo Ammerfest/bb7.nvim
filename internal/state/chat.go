@@ -503,13 +503,14 @@ func (s *State) ForkChat(chatID string, forkIndex int) (*ForkChatResult, error) 
 	}
 
 	newChat := &Chat{
-		ID:           newID,
-		Name:         newName,
-		Created:      time.Now().UTC(),
-		Model:        sourceChat.Model,
-		Draft:        MessageText(forkMsg), // The fork message becomes the draft
-		ContextFiles: []ContextFile{},
-		Messages:     []Message{},
+		ID:              newID,
+		Name:            newName,
+		Created:         time.Now().UTC(),
+		Model:           sourceChat.Model,
+		ReasoningEffort: sourceChat.ReasoningEffort,
+		Draft:           MessageText(forkMsg), // The fork message becomes the draft
+		ContextFiles:    []ContextFile{},
+		Messages:        []Message{},
 	}
 
 	// Create directories for new chat

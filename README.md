@@ -57,6 +57,8 @@ Everything above the following line was written by me; everything below it, as w
     })
     vim.keymap.set('n', '<leader>bb', '<cmd>BB7<cr>', { desc = 'Open [BB]7' })
     vim.keymap.set('n', '<leader>ba', '<cmd>BB7Add<cr>', { desc = '[B]B7 [A]dd File' })
+    vim.keymap.set('n', '<leader>bn', '<cmd>BB7NewChat<cr>', { desc = '[B]B7 [N]ew Chat' })
+    vim.keymap.set('n', '<leader>bs', '<cmd>BB7Search<cr>', { desc = '[B]B7 [S]earch Chats' })
   end,
 }
 ```
@@ -143,6 +145,8 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `g1`-`g5` | Jump to pane by number |
 | `<Tab>` / `<S-Tab>` | Cycle panes |
 | `<Esc>` | Close BB-7 |
+| `<C-c>` | Close BB-7 (works in insert mode) |
+| `<C-x>` | Cancel active stream |
 
 **Chats [1]:**
 
@@ -174,7 +178,6 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `]u` / `[u` | Next / previous user message |
 | `<C-f>` | Fork chat from current message |
 | `<C-e>` | Edit current user message |
-| `<C-c>` | Cancel active stream |
 | `gc` / `gf` / `gd` | Switch to chat / file / diff mode |
 
 **Input [5]:**

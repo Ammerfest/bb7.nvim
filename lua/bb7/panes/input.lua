@@ -237,6 +237,12 @@ local function cycle_reasoning()
   local next_idx = (current_idx % #REASONING_LEVELS) + 1
   state.reasoning_level = REASONING_LEVELS[next_idx]
 
+  -- Persist to active chat
+  local c = require('bb7.client')
+  if c.is_initialized() then
+    c.send({ action = 'save_chat_settings', reasoning_effort = state.reasoning_level })
+  end
+
   -- Show feedback
   if state.reasoning_level == 'none' then
     log.info('Reasoning: off')
@@ -258,6 +264,8 @@ local function cancel_send()
   state.sending = false
   client.cancel_active_stream()
 end
+
+M.cancel_send = cancel_send
 
 -- Setup keymaps for this pane
 function M.setup_keymaps(buf)
@@ -302,11 +310,8 @@ function M.setup_keymaps(buf)
   end, opts)
 
   -- Cancel current request
-  vim.keymap.set('n', '<C-c>', cancel_send, opts)
-  vim.keymap.set('i', '<C-c>', function()
-    vim.cmd('stopinsert')
-    cancel_send()
-  end, opts)
+  vim.keymap.set('n', '<C-x>', cancel_send, opts)
+  vim.keymap.set('i', '<C-x>', cancel_send, opts)
 
   -- Model picker (M in normal mode)
   vim.keymap.set('n', 'M', function()
@@ -524,7 +529,7 @@ function M.get_hints()
   end
 
   if state.sending then
-    return 'Streaming... | Cancel: <C-c>'
+    return 'Streaming... | Cancel: <C-x>'
   end
 
   local send_key = vim.g.bb7_send_key or 'shift_enter'
@@ -533,17 +538,17 @@ function M.get_hints()
   if mode == 'i' then
     -- Insert mode hints
     if send_key == 'enter' then
-      return 'Send: <CR> | Newline: <S-CR> | Cancel: <C-c> | Normal: <Esc>'
+      return 'Send: <CR> | Newline: <S-CR> | Cancel: <C-x> | Normal: <Esc>'
     else
-      return 'Send: <S-CR> | Cancel: <C-c> | Normal: <Esc>'
+      return 'Send: <S-CR> | Cancel: <C-x> | Normal: <Esc>'
     end
   else
     -- Normal mode hints (show R only if model supports reasoning)
     local models = require('bb7.models')
     if models.supports_reasoning(state.current_model) then
-      return 'Send: <CR> | Model: M | Cancel: <C-c> | Reasoning: R'
+      return 'Send: <CR> | Model: M | Cancel: <C-x> | Reasoning: R'
     else
-      return 'Send: <CR> | Model: M | Cancel: <C-c>'
+      return 'Send: <CR> | Model: M | Cancel: <C-x>'
     end
   end
 end

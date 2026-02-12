@@ -2,11 +2,13 @@
 local M = {}
 
 local shared = require('bb7.ui.shared')
+local preview_shared = require('bb7.panes.preview.shared')
 
 -- Save view state for all panes before closing
 function M.save_session_state()
   shared.session_state.active_pane = shared.state.active_pane
   shared.session_state.first_open = false
+  shared.session_state.preview_autoscroll = preview_shared.state.autoscroll
 
   for pane_id, pane in pairs(shared.state.panes) do
     if pane.win and vim.api.nvim_win_is_valid(pane.win) then
