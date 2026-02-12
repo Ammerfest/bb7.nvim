@@ -145,7 +145,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `g1`-`g5` | Jump to pane by number |
 | `<Tab>` / `<S-Tab>` | Cycle panes |
 | `<Esc>` | Close BB-7 |
-| `<C-c>` | Close BB-7 (works in insert mode) |
+| `<C-c>` | Close BB-7 |
 | `<C-x>` | Cancel active stream |
 
 **Chats [1]:**
@@ -239,6 +239,3 @@ Open the model picker with `M` in the Input pane or `:BB7Model`. Any OpenRouter 
 - [docs/DIFFS.md](docs/DIFFS.md) — Diff handling design
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — Contributor build/test/debug workflows
 
-## License
-
-MIT
