@@ -6,7 +6,7 @@ BB-7 is a Neovim Plugin for LLM-assisted but non-agentic software development. I
 
 I'm amazed what can be done with Claude Code, Codex etc., but for quite a few tasks, these agents are not the right tool for me. Most importantly, there are projects where I want to write at least 99% of the code myself. And for quick discussions, learning new concepts using small code snippets, local code reviews, or very targeted small edits on a large code base, agents feel too slow and cumbersome to me. I always preferred the focused UX of a web chat, but copy/pasting code from Neovim into the browser and explaining my project over and over again has an incredibly high friction. BB-7 solves this problem for me. 
 
-<img width="2883" height="1676" alt="Screenshot" src="https://github.com/user-attachments/assets/23448d3a-d446-4bbf-a7fa-07275fe70817" />
+<img width="2883" height="1676" alt="Screenshot" src="https://github.com/user-attachments/assets/bf1bae08-e95c-4acf-9235-008c14a58c0b" />
 
 (1) List of chats  
 (2) Files in the active chat's context  
