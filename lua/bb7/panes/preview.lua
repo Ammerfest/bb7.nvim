@@ -327,7 +327,7 @@ function M.get_title()
   return nil
 end
 
--- Show a context file (called when hovering in context pane)
+-- Show a context file (called when hovering in Files pane)
 function M.show_context_file(file)
   if not file then
     -- No file selected, return to chat mode
@@ -357,7 +357,7 @@ function M.get_current_file()
 end
 
 -- Set current file (without switching mode)
--- Used to track file selection from context pane when not in context focus
+-- Used to track file selection from Files pane when not in Files focus
 function M.set_current_file(file)
   state.current_file = file
 end
@@ -378,7 +378,7 @@ function M.switch_to_diff()
 end
 
 -- Return to chat mode (from file preview)
--- Keeps current_file so gf/gd still work after switching away from context pane
+-- Keeps current_file so gf/gd still work after switching away from Files pane
 function M.show_chat()
   state.mode = 'chat'
   render.render()

@@ -82,7 +82,7 @@ func TestDefaultTools(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	client := NewClient("https://api.example.com/v1/", "sk-test")
+	client := NewClient("https://api.example.com/v1/", "sk-test", false, true)
 	if client.baseURL != "https://api.example.com/v1" {
 		t.Errorf("baseURL = %q, want trailing slash stripped", client.baseURL)
 	}

@@ -619,7 +619,7 @@ func TestNoActiveChatOperationsFail(t *testing.T) {
 	if _, err := s.GetFileStatuses(); err != ErrNoActiveChat {
 		t.Errorf("GetFileStatuses expected ErrNoActiveChat, got %v", err)
 	}
-	if _, err := s.EstimateTokens("prompt"); err != ErrNoActiveChat {
+	if _, err := s.EstimateTokens("prompt", ""); err != ErrNoActiveChat {
 		t.Errorf("EstimateTokens expected ErrNoActiveChat, got %v", err)
 	}
 }

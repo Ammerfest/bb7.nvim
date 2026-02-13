@@ -20,12 +20,13 @@ type TokenEstimate struct {
 	History          int             `json:"history"`           // Tokens from chat history
 	Instructions     int             `json:"instructions"`      // Tokens from instruction files
 	SystemPrompt     int             `json:"system_prompt"`     // Tokens from system prompt
+	InputText        int             `json:"input_text"`        // Tokens from current input text
 	Files            []FileTokenInfo `json:"files"`             // Per-file breakdown
 	PotentialSavings int             `json:"potential_savings"` // Tokens saved by applying M files
 }
 
 // EstimateTokens calculates token estimates for the current chat context.
-func (s *State) EstimateTokens(systemPrompt string) (*TokenEstimate, error) {
+func (s *State) EstimateTokens(systemPrompt string, inputText string) (*TokenEstimate, error) {
 	if err := s.requireActiveChat(); err != nil {
 		return nil, err
 	}
@@ -77,8 +78,13 @@ func (s *State) EstimateTokens(systemPrompt string) (*TokenEstimate, error) {
 		estimate.Files = append(estimate.Files, fileInfo)
 	}
 
+	// Estimate input text tokens
+	if inputText != "" {
+		estimate.InputText = llm.EstimateTokensSimple(inputText)
+	}
+
 	// Calculate total
-	estimate.Total = estimate.SystemPrompt + estimate.Instructions + estimate.ContextFiles + estimate.History
+	estimate.Total = estimate.SystemPrompt + estimate.Instructions + estimate.ContextFiles + estimate.History + estimate.InputText
 
 	return estimate, nil
 }

@@ -47,7 +47,7 @@ M.PANES = {
       if info then return info.selected .. ' of ' .. info.total end
       return nil
     end },
-  { id = 2, display = 'g2', key = 'g2', name = 'Context',  title_fn = function() return 'Context' end,
+  { id = 2, display = 'g2', key = 'g2', name = 'Files',  title_fn = function() return 'Files' end,
     footer_fn = function()
       local summary = panes_context.get_summary()
       if summary then
@@ -69,7 +69,7 @@ M.PANES = {
 -- Map key to internal pane ID
 M.KEY_TO_PANE = {
   ['g1'] = 1,  -- Chats
-  ['g2'] = 2,  -- Context
+  ['g2'] = 2,  -- Files
   ['g3'] = 3,  -- Info
   ['g4'] = 4,  -- Preview
   ['g5'] = 5,  -- Input

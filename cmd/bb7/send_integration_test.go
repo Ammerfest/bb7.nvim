@@ -31,7 +31,7 @@ func setupSendIntegrationEnv(t *testing.T, baseURL string) {
 		DefaultModel: "test-model",
 		TitleModel:   "test-title-model",
 	}
-	llmClient = llm.NewClient(baseURL, appConfig.APIKey)
+	llmClient = llm.NewClient(baseURL, appConfig.APIKey, false, true)
 	resetActiveStreamForTest()
 
 	projectRoot := t.TempDir()

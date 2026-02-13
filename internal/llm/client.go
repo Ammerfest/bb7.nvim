@@ -25,18 +25,39 @@ const defaultRequestTimeout = 30 * time.Second
 
 // Client handles communication with the LLM API.
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	baseURL            string
+	apiKey             string
+	httpClient         *http.Client
+	allowTraining      bool
+	allowDataRetention bool
 }
 
 // NewClient creates a new LLM client.
-func NewClient(baseURL, apiKey string) *Client {
+func NewClient(baseURL, apiKey string, allowTraining, allowDataRetention bool) *Client {
 	return &Client{
-		baseURL:    strings.TrimSuffix(baseURL, "/"),
-		apiKey:     apiKey,
-		httpClient: &http.Client{},
+		baseURL:            strings.TrimSuffix(baseURL, "/"),
+		apiKey:             apiKey,
+		httpClient:         &http.Client{},
+		allowTraining:      allowTraining,
+		allowDataRetention: allowDataRetention,
 	}
+}
+
+// providerPreferences builds the provider preferences for API requests
+// based on client privacy settings. Returns nil if no restrictions apply.
+func (c *Client) providerPreferences() *ProviderPreferences {
+	if c.allowTraining && c.allowDataRetention {
+		return nil
+	}
+	p := &ProviderPreferences{}
+	if !c.allowTraining {
+		p.DataCollection = "deny"
+	}
+	if !c.allowDataRetention {
+		t := true
+		p.ZDR = &t
+	}
+	return p
 }
 
 // StreamCallback is called for each event in the stream.
@@ -60,6 +81,7 @@ func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, mes
 		Tools:     DefaultTools(),
 		Stream:    true,
 		Reasoning: reasoning,
+		Provider:  c.providerPreferences(),
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -263,6 +285,16 @@ func (c *Client) ChatSimple(model, systemPrompt string, messages []Message) (str
 		"messages":    allMessages,
 		"stream":      false,
 		"temperature": 0.5, // Lower temp for more consistent titles
+	}
+	if p := c.providerPreferences(); p != nil {
+		prov := map[string]any{}
+		if p.DataCollection != "" {
+			prov["data_collection"] = p.DataCollection
+		}
+		if p.ZDR != nil && *p.ZDR {
+			prov["zdr"] = true
+		}
+		reqBody["provider"] = prov
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)

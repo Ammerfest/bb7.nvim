@@ -34,6 +34,7 @@ end
 -- Start streaming mode (optionally with user message to show immediately)
 function M.start_streaming(user_message)
   shared.state.streaming = true
+  shared.state.stream_receiving = false
   shared.state.stream_lines = {}
   shared.state.stream_reasoning_lines = {}
   shared.state.pending_user_message = user_message
@@ -53,6 +54,7 @@ end
 -- Append streaming content
 function M.append_stream(content)
   if not shared.state.streaming then return end
+  shared.state.stream_receiving = true
 
   -- Split content by newlines and append
   for char in content:gmatch('.') do
@@ -72,6 +74,9 @@ end
 -- Append reasoning streaming content
 function M.append_reasoning_stream(content)
   if not shared.state.streaming then return end
+  -- Skip whitespace-only chunks to avoid rendering an empty reasoning block
+  if not content or not content:match('%S') then return end
+  shared.state.stream_receiving = true
 
   -- Split content by newlines and append
   for char in content:gmatch('.') do
@@ -96,6 +101,7 @@ function M.end_streaming(usage)
   end
 
   shared.state.streaming = false
+  shared.state.stream_receiving = false
   shared.state.stream_lines = {}
   shared.state.stream_reasoning_lines = {}
   shared.state.pending_user_message = nil
@@ -116,6 +122,7 @@ end
 -- Preserves the pending user message so the user can see what they tried to send
 function M.show_send_error(error_msg)
   shared.state.streaming = false
+  shared.state.stream_receiving = false
   shared.state.stream_lines = {}
   shared.state.stream_reasoning_lines = {}
   -- Keep pending_user_message so it renders above the error

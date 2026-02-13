@@ -8,6 +8,7 @@ M.state = {
   mode = 'chat',     -- 'chat', 'file', or 'diff'
   current_file = nil, -- Current file being previewed (when mode == 'file' or 'diff')
   streaming = false, -- Whether we're currently receiving a streaming response
+  stream_receiving = false, -- Whether we've received at least one token
   stream_lines = {}, -- Lines accumulated during streaming
   stream_reasoning_lines = {}, -- Reasoning lines accumulated during streaming
   pending_user_message = nil, -- User message being responded to (shown during streaming)

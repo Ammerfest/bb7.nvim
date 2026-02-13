@@ -64,6 +64,29 @@ Everything in these files (after stripping comments and expanding includes) is i
 
 Use `:BB7EditInstructions Project` or `:BB7EditInstructions Global` to open the files for editing.
 
+## Provider Privacy
+
+OpenRouter routes requests to different providers for the same model. These providers have varying data policies — some retain data for compliance or abuse detection, and some use data for model training. BB-7 lets you control which providers are eligible via `~/.config/bb7/config.json`:
+
+```json
+{
+  "api_key": "sk-or-...",
+  "allow_training": false,
+  "allow_data_retention": true
+}
+```
+
+**`allow_training`** (default: `false`) — Whether to allow providers that may train on your inputs and outputs. When `false`, OpenRouter excludes providers that train on data or store it permanently. Providers that retain data transiently (e.g., Anthropic's 30-day retention for safety review) are still allowed.
+
+**`allow_data_retention`** (default: `true`) — Whether to allow providers that retain data for any period. When `false`, only zero-data-retention (ZDR) providers are used. This is strictly stronger than disabling training — for example, direct Anthropic endpoints are excluded (30-day retention), but Claude remains available through Google Vertex AI or Amazon Bedrock which are ZDR-compliant. In-memory prompt caching is not considered data retention.
+
+| `allow_training` | `allow_data_retention` | Effect |
+|---|---|---|
+| `false` | `true` | **Default.** No training, transient retention OK |
+| `false` | `false` | No training, no retention (ZDR only) |
+| `true` | `true` | No restrictions (OpenRouter default routing) |
+| `true` | `false` | No retention (ZDR only) |
+
 ## Chat Styling
 
 Chat styling uses two mechanisms: **highlight groups** for colors, and **`vim.g` variables** for icons. Both should be set before calling `setup()`.

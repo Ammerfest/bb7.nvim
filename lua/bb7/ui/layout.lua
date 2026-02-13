@@ -31,8 +31,8 @@ function M.calc_layout()
   local left_content_width = math.max(1, left_total - 2)
   local right_content_width = math.max(1, right_total - 2)
 
-  -- Left column: Info at bottom (fixed 5 lines), Chats and Context split the rest
-  local provider_total = math.min(5, total_height) -- Including borders (3 content lines + 2 border)
+  -- Left column: Info at bottom (fixed 6 lines), Chats and Files split the rest
+  local provider_total = math.min(6, total_height) -- Including borders (4 content lines + 2 border)
   local left_remaining = math.max(0, total_height - provider_total)
   local chats_total = math.max(2, math.floor(left_remaining * 0.5))
   local context_total = math.max(2, left_remaining - chats_total)
@@ -56,7 +56,7 @@ function M.calc_layout()
       width = left_content_width,
       height = chats_content_height,
     },
-    -- Pane 2: Context (middle-left)
+    -- Pane 2: Files (middle-left)
     [2] = {
       row = chats_total,
       col = 0,

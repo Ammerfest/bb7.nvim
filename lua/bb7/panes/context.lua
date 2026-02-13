@@ -1,4 +1,4 @@
--- Context pane: manage files in chat context with tree view
+-- Files pane: manage files in chat context with tree view
 local M = {}
 
 local client = require('bb7.client')

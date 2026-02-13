@@ -2,7 +2,6 @@
 local M = {}
 
 local client = require('bb7.client')
-local utils = require('bb7.utils')
 local log = require('bb7.log')
 
 -- Reasoning effort levels (cycle order)
@@ -27,8 +26,11 @@ local state = {
   on_stream_error = nil,  -- Callback when streaming fails with error
   on_mode_changed = nil,  -- Callback when vim mode changes (for hint updates)
   on_footer_changed = nil, -- Callback when footer content changes (reasoning toggle)
+  on_estimate_refreshed = nil, -- Callback after token estimate refreshes
   check_send = nil,        -- Callback before send: returns error string to block, nil to allow
   estimate = nil,    -- Current token estimate { total, potential_savings }
+  estimate_timer = nil,  -- Debounce timer for input-based re-estimation
+  last_estimate_len = 0, -- Character length at last estimate
   current_model = nil, -- Currently selected model ID
   reasoning_level = 'none', -- Current reasoning effort: 'none', 'low', 'medium', 'high'
   augroup = nil,     -- Autocmd group
@@ -342,42 +344,21 @@ function M.set_callbacks(callbacks)
   state.on_stream_error = callbacks.on_stream_error
   state.on_mode_changed = callbacks.on_mode_changed
   state.on_footer_changed = callbacks.on_footer_changed
+  state.on_estimate_refreshed = callbacks.on_estimate_refreshed
   state.check_send = callbacks.check_send
 end
 
 
--- Update the estimate display in window title
-local function update_estimate_display()
-  if not state.win or not vim.api.nvim_win_is_valid(state.win) then
-    return
-  end
-
-  local title_parts = { ' [g5] Input' }
-
-  if state.estimate then
-    local est_str = ' • ~' .. utils.format_tokens(state.estimate.total) .. ' tokens'
-    if state.estimate.potential_savings and state.estimate.potential_savings > 0 then
-      est_str = est_str .. ' • Apply M files to save ' .. utils.format_tokens(state.estimate.potential_savings)
-    end
-    table.insert(title_parts, est_str)
-  end
-
-  local title = table.concat(title_parts)
-
-  -- Update window title
-  vim.api.nvim_win_set_config(state.win, {
-    title = { { title, 'BB7TitleActive' } },
-  })
-end
-
 -- Refresh token estimate from backend
-function M.refresh_estimate()
+function M.refresh_estimate(on_done)
   if not state.chat_active then
     state.estimate = nil
-    update_estimate_display()
+    if on_done then on_done() end
     return
   end
-  client.request({ action = 'estimate_tokens' }, function(response, err)
+  local input_text = get_content()
+  state.last_estimate_len = #input_text
+  client.request({ action = 'estimate_tokens', input_text = input_text }, function(response, err)
     if err then
       state.estimate = nil
     else
@@ -386,8 +367,14 @@ function M.refresh_estimate()
         potential_savings = response.potential_savings or 0,
       }
     end
-    update_estimate_display()
+    if on_done then on_done() end
+    if state.on_estimate_refreshed then state.on_estimate_refreshed() end
   end)
+end
+
+-- Get current token estimate
+function M.get_estimate()
+  return state.estimate
 end
 
 -- Save draft to backend (debounced)
@@ -416,6 +403,22 @@ local function schedule_draft_save()
   state.draft_timer = vim.fn.timer_start(500, function()
     state.draft_timer = nil
     vim.schedule(save_draft_now)
+  end)
+end
+
+-- Schedule estimate refresh when input text changes significantly (>500 chars)
+local function schedule_estimate_refresh()
+  if not state.chat_active then return end
+  local current_len = #get_content()
+  if math.abs(current_len - state.last_estimate_len) < 500 then return end
+  if state.estimate_timer then
+    vim.fn.timer_stop(state.estimate_timer)
+  end
+  state.estimate_timer = vim.fn.timer_start(800, function()
+    state.estimate_timer = nil
+    vim.schedule(function()
+      M.refresh_estimate()
+    end)
   end)
 end
 
@@ -455,11 +458,14 @@ function M.init(buf, win)
     end,
   })
 
-  -- Save draft on text change (debounced)
+  -- Save draft on text change (debounced) and schedule estimate refresh
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI' }, {
     group = state.augroup,
     buffer = buf,
-    callback = schedule_draft_save,
+    callback = function()
+      schedule_draft_save()
+      schedule_estimate_refresh()
+    end,
   })
 
   -- Trim leading whitespace when leaving the input pane
@@ -497,6 +503,13 @@ function M.init(buf, win)
       end
     end,
   })
+end
+
+-- Focus without changing mode
+function M.focus()
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_set_current_win(state.win)
+  end
 end
 
 -- Focus and enter insert mode
@@ -607,11 +620,17 @@ function M.cleanup()
     vim.fn.timer_stop(state.draft_timer)
     state.draft_timer = nil
   end
+  if state.estimate_timer then
+    vim.fn.timer_stop(state.estimate_timer)
+    state.estimate_timer = nil
+  end
   state.buf = nil
   state.win = nil
   state.mode = 'normal'
   state.sending = false
   state.estimate = nil
+  state.estimate_timer = nil
+  state.last_estimate_len = 0
   state.current_model = nil
   state.reasoning_level = 'none'
   state.last_saved_draft = nil
@@ -622,6 +641,7 @@ function M.cleanup()
   state.on_stream_error = nil
   state.on_mode_changed = nil
   state.on_footer_changed = nil
+  state.on_estimate_refreshed = nil
   state.check_send = nil
 end
 

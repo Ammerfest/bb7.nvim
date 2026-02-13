@@ -197,7 +197,7 @@ func ensureConfig() error {
 	}
 
 	appConfig = cfg
-	llmClient = llm.NewClient(cfg.BaseURL, cfg.APIKey)
+	llmClient = llm.NewClient(cfg.BaseURL, cfg.APIKey, *cfg.AllowTraining, *cfg.AllowDataRetention)
 	return nil
 }
 
@@ -816,7 +816,7 @@ func handleRequest(line string) {
 		go handleGetModels(reqID)
 
 	case "estimate_tokens":
-		handleEstimateTokens(reqID)
+		handleEstimateTokens(reqID, req)
 
 	case "send":
 		if !reserveActiveStream(reqID) {
@@ -924,14 +924,22 @@ func handleGetModels(reqID string) {
 			}
 		}
 		modelList = append(modelList, map[string]any{
-			"id":                 m.ID,
-			"name":               m.Name,
-			"context_length":     m.ContextLength,
-			"supports_reasoning": supportsReasoning,
-			"supports_tools":     supportsTools,
+			"id":                    m.ID,
+			"name":                  m.Name,
+			"description":          m.Description,
+			"created":              m.Created,
+			"expiration_date":      m.ExpirationDate,
+			"context_length":        m.ContextLength,
+			"max_completion_tokens": m.TopProvider.MaxCompletionTokens,
+			"supports_reasoning":    supportsReasoning,
+			"supports_tools":        supportsTools,
 			"pricing": map[string]any{
-				"prompt":     m.Pricing.Prompt,
-				"completion": m.Pricing.Completion,
+				"prompt":             m.Pricing.Prompt,
+				"completion":         m.Pricing.Completion,
+				"input_cache_read":   m.Pricing.InputCacheRead,
+				"input_cache_write":  m.Pricing.InputCacheWrite,
+				"internal_reasoning": m.Pricing.InternalReasoning,
+				"discount":           m.Pricing.Discount,
 			},
 		})
 	}
@@ -942,13 +950,14 @@ func handleGetModels(reqID string) {
 	})
 }
 
-func handleEstimateTokens(reqID string) {
+func handleEstimateTokens(reqID string, req map[string]any) {
 	if appState.ActiveChat == nil {
 		respond(reqID, errorResponse(state.ErrNoActiveChat))
 		return
 	}
 
-	estimate, err := appState.EstimateTokens(systemPrompt)
+	inputText, _ := req["input_text"].(string)
+	estimate, err := appState.EstimateTokens(systemPrompt, inputText)
 	if err != nil {
 		respond(reqID, errorResponse(err))
 		return
@@ -961,6 +970,7 @@ func handleEstimateTokens(reqID string) {
 		"history":           estimate.History,
 		"instructions":      estimate.Instructions,
 		"system_prompt":     estimate.SystemPrompt,
+		"input_text":        estimate.InputText,
 		"files":             estimate.Files,
 		"potential_savings": estimate.PotentialSavings,
 	})

@@ -969,7 +969,8 @@ function M.render()
       local elapsed = os.time() - shared.persistent.stream_start_time
       duration_str = ' ' .. format.format_duration(elapsed)
     end
-    format.add_styled_line(lines, spinner .. ' Generating...' .. duration_str, nil, 'BB7Spinner', false)
+    local status_label = shared.state.stream_receiving and 'Streaming...' or 'Waiting...'
+    format.add_styled_line(lines, spinner .. ' ' .. status_label .. duration_str, nil, 'BB7Spinner', false)
   end
 
   -- Persistent usage line: find last assistant message with usage data

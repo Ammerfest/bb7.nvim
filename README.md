@@ -102,7 +102,7 @@ Optional settings:
 3. **Add files**: `:BB7Add` from any buffer
 4. **Chat**: Write in the Input pane (`g5`), send with `<S-CR>`
 5. **Review**: Responses appear in Preview. `gf` for file view, `gd` for diff
-6. **Apply**: In Context pane, `p` to apply a file or `P` for all
+6. **Apply**: In Files pane, `p` to apply a file or `P` for all
 
 ### Commands
 
@@ -158,7 +158,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `p` | Pin/unpin chat |
 | `r` | Rename chat |
 
-**Context [2]:**
+**Files [2]:**
 
 | Key | Action |
 |-----|--------|
@@ -192,7 +192,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 
 The send key can be changed with `vim.g.bb7_send_key = 'enter'` (makes `<CR>` send in insert mode, `<S-CR>` for newlines).
 
-### Context Status Indicators
+### File Status Indicators
 
 | Status | Meaning |
 |--------|--------|

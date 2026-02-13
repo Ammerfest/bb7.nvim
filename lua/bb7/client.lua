@@ -110,6 +110,10 @@ local function handle_output(line)
       state.pending_callbacks[resp_id] = nil
       remove_pending_id(resp_id)
       cb(nil, data.message)
+    elseif resp_id then
+      -- Response has a request_id but no matching callback (fire-and-forget send).
+      -- Log the error but don't steal from the queue.
+      log.error(data.message)
     elseif #state.pending_queue > 0 then
       local legacy_id = table.remove(state.pending_queue, 1)
       local cb = legacy_id and state.pending_callbacks[legacy_id] or nil
@@ -133,7 +137,8 @@ local function handle_output(line)
     state.pending_callbacks[resp_id] = nil
     remove_pending_id(resp_id)
     cb(data, nil)
-  elseif #state.pending_queue > 0 then
+  elseif not resp_id and #state.pending_queue > 0 then
+    -- Legacy fallback: only for responses without a request_id
     local legacy_id = table.remove(state.pending_queue, 1)
     local cb = legacy_id and state.pending_callbacks[legacy_id] or nil
     if legacy_id then

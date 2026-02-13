@@ -19,7 +19,7 @@ For UI details, see [README.md](../README.md#ui-layout).
 ┌──────────────────────────────────────────────────────────────────┐
 │                           Neovim                                  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐  │
-│  │  Chats   │  │ Context  │  │ Provider │  │     Preview     │  │
+│  │  Chats   │  │  Files   │  │ Provider │  │     Preview     │  │
 │  │  Pane    │  │  Pane    │  │   Pane   │  │      Pane       │  │
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────────┬────────┘  │
 │       │             │             │                  │           │
@@ -57,7 +57,7 @@ lua/bb7/
 ├── telescope.lua          # Telescope integration (chat search)
 └── panes/
     ├── chats.lua          # Chat list pane (pane 1)
-    ├── context.lua        # File context pane (pane 2)
+    ├── context.lua        # Files pane (pane 2)
     ├── provider.lua       # Provider balance pane (pane 3)
     ├── preview.lua        # Preview pane facade (delegates to preview/ submodules)
     ├── preview/
@@ -163,7 +163,7 @@ panes_chats.set_callbacks({
   on_data_changed = function() ... end,
 })
 
--- Context pane callbacks
+-- Files pane callbacks
 panes_context.set_callbacks({
   on_file_selected = function(file) ... end,
   on_data_changed = function() ... end,

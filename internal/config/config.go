@@ -15,10 +15,12 @@ var (
 
 // Config holds the global BB-7 configuration.
 type Config struct {
-	APIKey       string `json:"api_key"`
-	BaseURL      string `json:"base_url"`
-	DefaultModel string `json:"default_model"`
-	TitleModel   string `json:"title_model"` // Model for auto-generating chat titles (cheap/fast)
+	APIKey             string `json:"api_key"`
+	BaseURL            string `json:"base_url"`
+	DefaultModel       string `json:"default_model"`
+	TitleModel         string `json:"title_model"`          // Model for auto-generating chat titles (cheap/fast)
+	AllowDataRetention *bool  `json:"allow_data_retention"` // Allow providers that retain data (default: true)
+	AllowTraining      *bool  `json:"allow_training"`       // Allow providers that train on data (default: false)
 }
 
 // Load reads the config from ~/.config/bb7/config.json.
@@ -60,6 +62,14 @@ func LoadFrom(path string) (*Config, error) {
 	}
 	if cfg.TitleModel == "" {
 		cfg.TitleModel = "anthropic/claude-3-haiku"
+	}
+	if cfg.AllowDataRetention == nil {
+		t := true
+		cfg.AllowDataRetention = &t
+	}
+	if cfg.AllowTraining == nil {
+		f := false
+		cfg.AllowTraining = &f
 	}
 
 	return &cfg, nil

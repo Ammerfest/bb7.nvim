@@ -21,6 +21,19 @@ local PANES = shared.PANES
 local KEY_TO_PANE = shared.KEY_TO_PANE
 local PANE_HINTS = shared.PANE_HINTS
 
+-- Update context estimate in provider pane from current input estimate + model info
+local function update_context_estimate()
+  local estimate = panes_input.get_estimate()
+  local model_info = models.get_model_info()
+  if estimate and model_info then
+    panes_provider.set_context_estimate(
+      estimate.total,
+      model_info.context_length,
+      model_info.max_completion_tokens
+    )
+  end
+end
+
 -- Get hints for a pane (from module or static)
 local function get_pane_hints(pane_id)
   if pane_id == 1 then
@@ -156,7 +169,7 @@ local function focus_pane(pane_id, via_key)
 
     -- Handle preview mode based on focused pane
     if pane_id == 2 then
-      -- Context pane: show selected file in preview
+      -- Files pane: show selected file in preview
       local file = panes_context.get_selected_file()
       if file then
         panes_preview.show_context_file(file)
@@ -188,12 +201,12 @@ end
 
 -- Pane navigation map: for each pane, which pane is in each direction
 -- Layout:
---   1=Chats(top-left), 2=Context(mid-left), 3=Info(bottom-left)
+--   1=Chats(top-left), 2=Files(mid-left), 3=Info(bottom-left)
 --   4=Preview(top-right), 5=Input(bottom-right)
 -- nil means no neighbor in that direction (no-op)
 local PANE_NEIGHBORS = {
   [1] = { h = nil, j = 2,   k = nil, l = 4   },  -- Chats
-  [2] = { h = nil, j = 3,   k = 1,   l = 4   },  -- Context
+  [2] = { h = nil, j = 3,   k = 1,   l = 4   },  -- Files
   [3] = { h = nil, j = nil, k = 2,   l = 5   },  -- Info
   [4] = { h = 1,   j = 5,   k = nil, l = nil },  -- Preview
   [5] = { h = 3,   j = nil, k = 4,   l = nil },  -- Input
@@ -459,7 +472,7 @@ function M.open()
         -- Restore draft for this chat
         panes_input.set_draft(chat.draft)
         -- Refresh token estimate for new context
-        panes_input.refresh_estimate()
+        panes_input.refresh_estimate(update_context_estimate)
       else
         panes_input.set_chat_active(false)
         panes_input.set_draft('')
@@ -525,7 +538,7 @@ function M.open()
           if not get_err and chat then
             panes_preview.set_chat(chat)
             panes_context.set_chat(chat)
-            panes_input.refresh_estimate()
+            panes_input.refresh_estimate(update_context_estimate)
           end
         end)
         return
@@ -554,6 +567,7 @@ function M.open()
     on_footer_changed = function()
       update_pane_borders()  -- Refresh footer when reasoning level changes
     end,
+    on_estimate_refreshed = update_context_estimate,
     on_stream_done = function(_, usage)
       panes_preview.end_streaming(usage)
 
@@ -569,7 +583,7 @@ function M.open()
           panes_context.set_chat(chat)
 
           -- Refresh token estimate (context may have changed with new output files)
-          panes_input.refresh_estimate()
+          panes_input.refresh_estimate(update_context_estimate)
 
           -- Generate title after first message exchange (exactly one user message)
           -- Note: message count may exceed 2 due to context events (file writes)
@@ -656,6 +670,7 @@ function M.open()
       on_model_changed = function(model_id)
         panes_input.set_model(model_id)
         update_pane_borders()
+        update_context_estimate()
         -- Persist model to active chat
         if client.is_initialized() then
           client.send({ action = 'save_chat_settings', model = model_id })
@@ -704,6 +719,9 @@ function M.open()
           session.restore_pane_view(5)
         end)
       end
+
+      -- Fetch token estimate so the context line in Info pane is populated
+      panes_input.refresh_estimate(update_context_estimate)
 
     end
 
@@ -759,10 +777,15 @@ function M.open()
       vim.schedule(function()
         panes_provider.refresh_balance()
         panes_provider.refresh_customization()
+        local function on_models_refreshed(success)
+          if success then
+            update_context_estimate()
+          end
+        end
         if not models.did_refresh_once() then
-          models.refresh()
+          models.refresh(on_models_refreshed)
         else
-          models.refresh_if_stale()
+          models.refresh_if_stale(on_models_refreshed)
         end
       end)
     end
@@ -913,7 +936,7 @@ function M.switch_chat(chat_id, callback)
         panes_provider.set_chat(chat)
         panes_input.set_chat_active(true)
         panes_input.set_draft(chat.draft or '')
-        panes_input.refresh_estimate()
+        panes_input.refresh_estimate(update_context_estimate)
         if callback then
           callback()
         end
@@ -956,7 +979,7 @@ function M.set_screenshot_mode()
   }
   panes_chats.set_mock_chats(chats, 3, { 'sc-001' })
 
-  -- Pane 2: Context (3 files)
+  -- Pane 2: Files (3 files)
   local files = {
     { path = 'player_controller.gd', in_context = true, has_output = false, readonly = true, external = false, status = 'R', tokens = 340, original_tokens = 0, output_tokens = 0 },
     { path = 'main_scene.tscn', in_context = true, has_output = false, readonly = false, external = false, status = '', tokens = 180, original_tokens = 0, output_tokens = 0 },
@@ -973,6 +996,11 @@ function M.set_screenshot_mode()
       system_override = false,
       global_instructions = true,
       project_instructions = true,
+    },
+    context_estimate = {
+      estimate = 4200,
+      context_length = 200000,
+      max_completion_tokens = 8192,
     },
   })
 

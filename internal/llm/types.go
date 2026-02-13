@@ -7,12 +7,18 @@ type ReasoningConfig struct {
 	Effort string `json:"effort,omitempty"` // "low", "medium", "high", or empty to disable
 }
 
+type ProviderPreferences struct {
+	DataCollection string `json:"data_collection,omitempty"` // "allow" or "deny"
+	ZDR            *bool  `json:"zdr,omitempty"`             // zero data retention
+}
+
 type ChatRequest struct {
-	Model     string           `json:"model"`
-	Messages  []Message        `json:"messages"`
-	Tools     []Tool           `json:"tools,omitempty"`
-	Stream    bool             `json:"stream"`
-	Reasoning *ReasoningConfig `json:"reasoning,omitempty"`
+	Model     string               `json:"model"`
+	Messages  []Message            `json:"messages"`
+	Tools     []Tool               `json:"tools,omitempty"`
+	Stream    bool                 `json:"stream"`
+	Reasoning *ReasoningConfig     `json:"reasoning,omitempty"`
+	Provider  *ProviderPreferences `json:"provider,omitempty"`
 }
 
 type Message struct {
@@ -107,20 +113,32 @@ type BalanceResponse struct {
 	} `json:"data"`
 }
 
+// TopProvider contains provider-level limits from the OpenRouter API.
+type TopProvider struct {
+	MaxCompletionTokens int `json:"max_completion_tokens"`
+}
+
 // ModelInfo from /api/v1/models endpoint.
 type ModelInfo struct {
 	ID                  string       `json:"id"`
 	Name                string       `json:"name"`
+	Description         string       `json:"description"`
+	Created             int64        `json:"created"`
+	ExpirationDate      *string      `json:"expiration_date"`
 	ContextLength       int          `json:"context_length"`
 	Pricing             ModelPricing `json:"pricing"`
+	TopProvider         TopProvider  `json:"top_provider"`
 	SupportedParameters []string     `json:"supported_parameters,omitempty"`
 }
 
 // ModelPricing contains per-token prices in USD.
 type ModelPricing struct {
-	Prompt         string `json:"prompt"`          // Price per input token
-	Completion     string `json:"completion"`      // Price per output token
-	InputCacheRead string `json:"input_cache_read"` // Price per cached input token
+	Prompt            string  `json:"prompt"`              // Price per input token
+	Completion        string  `json:"completion"`          // Price per output token
+	InputCacheRead    string  `json:"input_cache_read"`    // Price per cached input token
+	InputCacheWrite   string  `json:"input_cache_write"`   // Price per cache write token
+	InternalReasoning string  `json:"internal_reasoning"`  // Price per reasoning token
+	Discount          float64 `json:"discount"`            // Discount factor (0-1)
 }
 
 // ModelsResponse from /api/v1/models endpoint.

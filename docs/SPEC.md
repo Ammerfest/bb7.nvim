@@ -137,7 +137,7 @@ User messages also record a `context_snapshot` — an array of `{path, file_id, 
 - Context files are copied into `context/` when added
 - The LLM sees the snapshot, not the current local file
 - Additional files can be added during a chat
-- Files can be updated (re-snapshotted) via the Context pane's `u` command
+- Files can be updated (re-snapshotted) via the Files pane's `u` command
 - Out-of-sync detection compares local file against context snapshot
 - Context mutations emit structured history events so the LLM sees when files were added, removed, updated, or applied
 
@@ -196,7 +196,7 @@ Backend statuses (`M`, `A`, `!A`, `S`) are returned by `get_file_statuses`. Fron
 
 - Read-only is a safety and scope control: it tells the LLM not to modify those files.
 - External files are always read-only to prevent out-of-project writes.
-- Internal files can be toggled read-only via the Context pane's `r` key. Cannot set read-only on files with pending output.
+- Internal files can be toggled read-only via the Files pane's `r` key. Cannot set read-only on files with pending output.
 - Prompt caching is provider-specific and confusing across OpenRouter models, so we do not depend on it for correctness.
 - For now, we rely on implicit caching where available and keep prompt assembly stable.
 - Cache-friendly behavior: keep read-only file content ordered deterministically and early in the prompt so repeated requests reuse the same prefix.
@@ -286,6 +286,8 @@ Model selection behavior:
 | `base_url` | No | `https://openrouter.ai/api/v1` | API base URL |
 | `default_model` | No | `anthropic/claude-sonnet-4` | Default model for chats |
 | `title_model` | No | `anthropic/claude-3-haiku` | Model for title generation |
+| `allow_data_retention` | No | `true` | Allow providers that retain data transiently |
+| `allow_training` | No | `false` | Allow providers that train on user data |
 
 ## Instructions
 

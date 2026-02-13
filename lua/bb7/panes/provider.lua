@@ -2,6 +2,7 @@
 local M = {}
 
 local client = require('bb7.client')
+local utils = require('bb7.utils')
 
 local state = {
   buf = nil,
@@ -11,6 +12,9 @@ local state = {
   session_cost = 0,     -- Accumulated cost this project session
   project_root = nil,   -- Project root directory
   customization = nil,  -- { system_override, global_instructions, project_instructions, project_instructions_error }
+  context_estimate = nil, -- Estimated token count for full context
+  context_limit = nil,    -- Model context_length
+  max_completion = nil,   -- Model max_completion_tokens
 }
 
 -- Get the session cost file path for the current project
@@ -184,6 +188,30 @@ local function render()
   end
   table.insert(lines, build_line(left3, right3, hl3))
 
+  -- Context estimate line
+  local left4
+  if state.context_estimate and state.context_limit then
+    local est_str = '~' .. utils.format_tokens(state.context_estimate)
+    local limit_str = utils.format_tokens(state.context_limit)
+    local pct = math.floor((state.context_estimate / state.context_limit) * 100)
+    left4 = ' Context: ' .. est_str .. ' / ' .. limit_str .. ' (' .. pct .. '%)'
+    -- Determine warning state
+    local effective_limit = state.context_limit
+    if state.max_completion and state.max_completion > 0 then
+      effective_limit = state.context_limit - state.max_completion
+    end
+    if state.context_estimate > state.context_limit then
+      -- Exceeds total context
+      left4 = ' Context: ' .. est_str .. ' / ' .. limit_str .. ' \u{26a0} exceeds limit'
+    elseif state.context_estimate > effective_limit then
+      -- May truncate output
+      left4 = ' Context: ' .. est_str .. ' / ' .. limit_str .. ' \u{26a0} may truncate'
+    end
+  else
+    left4 = ' Context: -'
+  end
+  table.insert(lines, left4)
+
   vim.bo[state.buf].modifiable = true
   vim.api.nvim_buf_set_lines(state.buf, 0, -1, false, lines)
   vim.bo[state.buf].modifiable = false
@@ -195,6 +223,18 @@ local function render()
   -- Left labels (1 space prefix + label up to colon = 9 bytes)
   for i = 0, #lines - 1 do
     vim.api.nvim_buf_add_highlight(state.buf, ns, 'Comment', i, 0, 9)
+  end
+
+  -- Context line warning highlight (line index 3)
+  if state.context_estimate and state.context_limit then
+    local effective_limit = state.context_limit
+    if state.max_completion and state.max_completion > 0 then
+      effective_limit = state.context_limit - state.max_completion
+    end
+    if state.context_estimate > state.context_limit or state.context_estimate > effective_limit then
+      -- Highlight the entire value portion in red (after the label)
+      vim.api.nvim_buf_add_highlight(state.buf, ns, 'BB7ErrorText', 3, 9, -1)
+    end
   end
 
   -- Right-side customization highlights
@@ -250,6 +290,14 @@ function M.update_usage(usage, model)
     -- Also refresh balance to get updated account total
     M.refresh_balance()
   end
+end
+
+-- Set context estimate for display
+function M.set_context_estimate(estimate, context_length, max_completion_tokens)
+  state.context_estimate = estimate
+  state.context_limit = context_length
+  state.max_completion = max_completion_tokens
+  render()
 end
 
 -- Set chat data (no longer used for last cost display)
@@ -336,6 +384,11 @@ function M.set_mock_data(data)
   end
   if data.customization then
     state.customization = data.customization
+  end
+  if data.context_estimate then
+    state.context_estimate = data.context_estimate.estimate
+    state.context_limit = data.context_estimate.context_length
+    state.max_completion = data.context_estimate.max_completion_tokens
   end
   render()
 end

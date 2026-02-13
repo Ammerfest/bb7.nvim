@@ -4,8 +4,10 @@ local M = {}
 local state = {
   buf_list = nil,    -- Buffer for results list
   buf_input = nil,   -- Buffer for filter input
+  buf_detail = nil,  -- Buffer for detail pane
   win_list = nil,    -- Window for results list
   win_input = nil,   -- Window for filter input
+  win_detail = nil,  -- Window for detail pane
   items = {},        -- All items
   filtered = {},     -- Filtered items
   selected_idx = 1,  -- Currently highlighted item (1-indexed)
@@ -14,12 +16,14 @@ local state = {
   on_cancel = nil,   -- Callback when picker cancelled
   on_toggle_favorite = nil, -- Callback for favorite toggle
   format_item = nil, -- Function to format item for display
+  format_detail = nil, -- Function to format detail pane content
   get_filter_text = nil, -- Function to get searchable text from item
   is_favorite = nil, -- Function to check if item is favorite
   augroup = nil,     -- Autocmd group
 }
 
 local ns_id = vim.api.nvim_create_namespace('bb7_picker')
+local ns_detail = vim.api.nvim_create_namespace('bb7_picker_detail')
 
 -- Simple fuzzy match: all characters must appear in order
 local function fuzzy_match(text, pattern)
@@ -96,6 +100,33 @@ local function update_filtered()
   state.selected_idx = math.max(1, math.min(state.selected_idx, #state.filtered))
 end
 
+-- Render the detail pane (if active)
+local function render_detail()
+  if not state.buf_detail or not vim.api.nvim_buf_is_valid(state.buf_detail) then
+    return
+  end
+
+  local lines = {}
+  local highlights = {}
+
+  if #state.filtered > 0 and state.selected_idx <= #state.filtered then
+    local entry = state.filtered[state.selected_idx]
+    if state.format_detail then
+      lines, highlights = state.format_detail(entry.item, entry.is_fav)
+    end
+  end
+
+  vim.bo[state.buf_detail].modifiable = true
+  vim.api.nvim_buf_set_lines(state.buf_detail, 0, -1, false, lines)
+  vim.bo[state.buf_detail].modifiable = false
+
+  vim.api.nvim_buf_clear_namespace(state.buf_detail, ns_detail, 0, -1)
+  for _, hl in ipairs(highlights) do
+    vim.api.nvim_buf_add_highlight(state.buf_detail, ns_detail,
+      hl.group, hl.line, hl.col_start or 0, hl.col_end or -1)
+  end
+end
+
 -- Render the list
 local function render_list()
   if not state.buf_list or not vim.api.nvim_buf_is_valid(state.buf_list) then
@@ -140,6 +171,17 @@ local function render_list()
     table.insert(highlights, { line = 0, hl = 'Comment' })
   end
 
+  -- Pad lines to window width for full-width selection highlight
+  if state.win_list and vim.api.nvim_win_is_valid(state.win_list) then
+    local win_width = vim.api.nvim_win_get_width(state.win_list)
+    for i, line in ipairs(lines) do
+      local dw = vim.fn.strdisplaywidth(line)
+      if dw < win_width then
+        lines[i] = line .. string.rep(' ', win_width - dw)
+      end
+    end
+  end
+
   vim.bo[state.buf_list].modifiable = true
   vim.api.nvim_buf_set_lines(state.buf_list, 0, -1, false, lines)
   vim.bo[state.buf_list].modifiable = false
@@ -149,6 +191,9 @@ local function render_list()
   for _, hl in ipairs(highlights) do
     vim.api.nvim_buf_add_highlight(state.buf_list, ns_id, hl.hl, hl.line, 0, -1)
   end
+
+  -- Update detail pane
+  render_detail()
 end
 
 -- Update filter and re-render
@@ -246,11 +291,17 @@ function M.close(cancelled)
   if state.win_list and vim.api.nvim_win_is_valid(state.win_list) then
     vim.api.nvim_win_close(state.win_list, true)
   end
+  if state.win_detail and vim.api.nvim_win_is_valid(state.win_detail) then
+    vim.api.nvim_win_close(state.win_detail, true)
+  end
 
   state.win_input = nil
   state.win_list = nil
+  state.win_detail = nil
   state.buf_input = nil
   state.buf_list = nil
+  state.buf_detail = nil
+  state.format_detail = nil
 
   -- Notify UI that picker is closed and refocus Input pane
   local ok, ui = pcall(require, 'bb7.ui')
@@ -264,7 +315,7 @@ function M.close(cancelled)
         -- Refocus Input pane (pane 5) if BB7 is still open
         if ui.is_open() then
           local panes_input = require('bb7.panes.input')
-          panes_input.focus_insert()
+          panes_input.focus()
         end
       end
     end)
@@ -324,6 +375,8 @@ end
 -- opts:
 --   items: list of items to pick from
 --   format_item(item, is_favorite) -> string: format item for display
+--   format_item_compact(item, is_favorite) -> string: compact format (used with detail pane)
+--   format_detail(item, is_favorite) -> (lines, highlights): detail pane content
 --   get_filter_text(item) -> string: get searchable text
 --   get_id(item) -> string: get unique identifier for item (for selected_id matching)
 --   selected_id: initial selection (matched via get_id)
@@ -344,7 +397,7 @@ function M.open(opts)
 
   -- Store options
   state.items = opts.items or {}
-  state.format_item = opts.format_item or function(item) return tostring(item) end
+  state.format_detail = opts.format_detail
   state.get_filter_text = opts.get_filter_text or function(item) return tostring(item) end
   state.is_favorite = opts.is_favorite
   state.on_select = opts.on_select
@@ -366,15 +419,33 @@ function M.open(opts)
     end
   end
 
-  -- Calculate dimensions
-  local width = 84
-  local list_height = 15
+  -- Calculate dimensions (split layout with detail pane when wide enough)
+  local use_detail = opts.format_detail and vim.o.columns >= 105
+  local list_width, detail_width
+  if use_detail then
+    list_width = 62
+    detail_width = 36
+    state.format_item = opts.format_item_compact or opts.format_item
+      or function(item) return tostring(item) end
+  else
+    list_width = 90
+    state.format_item = opts.format_item
+      or function(item) return tostring(item) end
+  end
+
+  local list_height = 30
   local input_height = 1
   local total_height = list_height + input_height + 2  -- +2 for borders
 
   local ui_width = vim.o.columns
   local ui_height = vim.o.lines
-  local col = math.floor((ui_width - width) / 2)
+  local col
+  if use_detail then
+    local total_outer = (list_width + 2) + 1 + (detail_width + 2)
+    col = math.floor((ui_width - total_outer) / 2)
+  else
+    col = math.floor((ui_width - list_width) / 2)
+  end
   local row = math.floor((ui_height - total_height) / 2)
 
   -- Create list buffer and window
@@ -387,7 +458,7 @@ function M.open(opts)
     relative = 'editor',
     row = row,
     col = col,
-    width = width,
+    width = list_width,
     height = list_height,
     style = 'minimal',
     border = 'rounded',
@@ -400,6 +471,31 @@ function M.open(opts)
     'FloatBorder:BB7BorderActive,NormalFloat:Normal',
     { win = state.win_list })
 
+  -- Create detail buffer and window (right of list)
+  if use_detail then
+    state.buf_detail = vim.api.nvim_create_buf(false, true)
+    vim.bo[state.buf_detail].bufhidden = 'wipe'
+    vim.bo[state.buf_detail].buftype = 'nofile'
+    vim.bo[state.buf_detail].modifiable = false
+
+    state.win_detail = vim.api.nvim_open_win(state.buf_detail, false, {
+      relative = 'editor',
+      row = row,
+      col = col + list_width + 2 + 1,
+      width = detail_width,
+      height = list_height + input_height + 2,
+      style = 'minimal',
+      border = 'rounded',
+      title = {{ ' Details ', 'BB7TitleActive' }},
+      title_pos = 'left',
+      focusable = false,
+    })
+
+    vim.api.nvim_set_option_value('winhighlight',
+      'FloatBorder:BB7BorderActive,NormalFloat:Normal',
+      { win = state.win_detail })
+  end
+
   -- Create input buffer and window (below list)
   state.buf_input = vim.api.nvim_create_buf(false, true)
   vim.bo[state.buf_input].bufhidden = 'wipe'
@@ -409,7 +505,7 @@ function M.open(opts)
     relative = 'editor',
     row = row + list_height + 2,  -- Below list + border
     col = col,
-    width = width,
+    width = list_width,
     height = input_height,
     style = 'minimal',
     border = 'rounded',

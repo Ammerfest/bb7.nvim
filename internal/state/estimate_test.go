@@ -39,7 +39,7 @@ func TestEstimateTokens_PotentialSavings(t *testing.T) {
 	}
 
 	// First estimate: no output file, so no potential savings
-	estimate1, err := s.EstimateTokens("system prompt")
+	estimate1, err := s.EstimateTokens("system prompt", "")
 	if err != nil {
 		t.Fatalf("EstimateTokens failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestEstimateTokens_PotentialSavings(t *testing.T) {
 	}
 
 	// Second estimate: should have potential savings equal to original tokens
-	estimate2, err := s.EstimateTokens("system prompt")
+	estimate2, err := s.EstimateTokens("system prompt", "")
 	if err != nil {
 		t.Fatalf("EstimateTokens failed: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestEstimateTokens_MultipleFiles(t *testing.T) {
 		}
 	}
 
-	estimate, err := s.EstimateTokens("system prompt")
+	estimate, err := s.EstimateTokens("system prompt", "")
 	if err != nil {
 		t.Fatalf("EstimateTokens failed: %v", err)
 	}
