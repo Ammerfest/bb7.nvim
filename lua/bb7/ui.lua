@@ -282,6 +282,32 @@ local function setup_common_keymaps(pane_id, buf)
   vim.keymap.set('n', 'gf', function() panes_preview.switch_to_file() end, opts)
   vim.keymap.set('n', 'gd', function() panes_preview.switch_to_diff() end, opts)
 
+  -- C-n/C-p file cycling (mode-aware)
+  local function cycle_file_keymap(delta)
+    local mode = panes_preview.get_mode()
+
+    if pane_id == 2 then
+      -- Files pane: cycle based on preview mode
+      if mode == 'diff' then
+        panes_context.cycle_file(delta, true)
+      else
+        panes_context.cycle_file(delta, false)
+      end
+    elseif pane_id == 4 or pane_id == 5 then
+      -- Preview/Input pane: cycle and update preview
+      if mode == 'chat' then return end
+      local modified_only = (mode == 'diff')
+      panes_context.cycle_file(delta, modified_only)
+      local file = panes_context.get_selected_file()
+      if file then
+        panes_preview.show_file_in_current_mode(file)
+      end
+    end
+  end
+
+  vim.keymap.set('n', '<C-n>', function() cycle_file_keymap(1) end, opts)
+  vim.keymap.set('n', '<C-p>', function() cycle_file_keymap(-1) end, opts)
+
   -- Disable other C-w commands that don't make sense
   local cw_disabled = {
     '<C-w>H', '<C-w>J', '<C-w>K', '<C-w>L',  -- move window
@@ -493,9 +519,9 @@ function M.open()
   panes_context.set_callbacks({
     on_file_selected = function(file)
       -- Always track the current file in preview pane
-      -- But only auto-switch to file mode when context pane is focused
+      -- When files pane is focused, respect current preview mode (sticky)
       if state.active_pane == 2 then
-        panes_preview.show_context_file(file)
+        panes_preview.show_file_in_current_mode(file)
       else
         -- Just store the file reference without switching mode
         panes_preview.set_current_file(file)
@@ -568,7 +594,7 @@ function M.open()
       update_pane_borders()  -- Refresh footer when reasoning level changes
     end,
     on_estimate_refreshed = update_context_estimate,
-    on_stream_done = function(_, usage)
+    on_stream_done = function(output_files, usage)
       panes_preview.end_streaming(usage)
 
       -- Update provider pane with usage info
@@ -580,7 +606,11 @@ function M.open()
       client.request({ action = 'chat_get' }, function(chat, err)
         if not err and chat then
           panes_preview.set_chat(chat)
-          panes_context.set_chat(chat)
+          -- Refresh files pane without resetting selection.
+          -- If assistant wrote files, select the first one.
+          panes_context.refresh({
+            select_paths = output_files,
+          })
 
           -- Refresh token estimate (context may have changed with new output files)
           panes_input.refresh_estimate(update_context_estimate)
@@ -616,11 +646,12 @@ function M.open()
     on_title_updated = function(chat_id, title)
       -- Refresh chat list to show new title
       panes_chats.refresh()
-      -- Update preview if this is the active chat
+      -- Update preview title if this is the active chat
+      -- (don't call set_chat — it resets current_file and mode)
       local current_chat = panes_preview.get_chat()
       if current_chat and current_chat.id == chat_id then
         current_chat.name = title
-        panes_preview.set_chat(current_chat)
+        update_pane_borders()
       end
     end,
   })
@@ -965,9 +996,6 @@ function M.set_screenshot_mode()
   end
 
   local mock = require('bb7.panes.preview.mock')
-
-  -- Version for hint line
-  state.version = 'v0.3.0'
 
   -- Pane 1: Chats (5 chats, 3rd active, 1st pinned)
   local chats = {

@@ -23,11 +23,6 @@ end
 -- Switch to a specific mode
 local function switch_mode(new_mode)
   -- Check if mode is valid for current state
-  -- Diff mode available for M (modified) and ~M (conflict)
-  if new_mode == 'diff' and (not state.current_file or (state.current_file.status ~= 'M' and state.current_file.status ~= '~M')) then
-    log.warn('Diff mode only available for modified files')
-    return
-  end
   if (new_mode == 'file' or new_mode == 'diff') and not state.current_file then
     log.warn('No file selected')
     return
@@ -318,6 +313,8 @@ function M.get_title()
       status_str = ' [modified]'
     elseif state.current_file.status == 'A' then
       status_str = ' [added]'
+    elseif state.mode == 'diff' then
+      status_str = ' [unmodified]'
     end
     local mode_str = state.mode == 'diff' and ' (diff)' or ''
     return state.current_file.path .. status_str .. mode_str
@@ -360,6 +357,34 @@ end
 -- Used to track file selection from Files pane when not in Files focus
 function M.set_current_file(file)
   state.current_file = file
+end
+
+-- Show file respecting current preview mode (sticky mode)
+-- chat → switch to file mode; file → render file; diff → render diff (falls back for unmodified)
+function M.show_file_in_current_mode(file)
+  if not file then
+    -- On directory: don't change mode, just clear file ref
+    state.current_file = nil
+    notify_title_changed()
+    return
+  end
+
+  state.current_file = file
+
+  if state.mode == 'chat' then
+    state.mode = 'file'
+  end
+
+  if state.mode == 'file' then
+    files.render_file()
+  elseif state.mode == 'diff' then
+    files.render_diff()
+  end
+
+  notify_title_changed()
+  if state.on_mode_changed then
+    state.on_mode_changed(state.mode)
+  end
 end
 
 -- Switch to chat mode (exported for commands)

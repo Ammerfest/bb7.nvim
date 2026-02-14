@@ -42,6 +42,12 @@ function M.render_diff()
 
   local file = shared.state.current_file
 
+  -- If file has no output, show file content instead (unmodified file in diff mode)
+  if not file.has_output then
+    M.render_file()
+    return
+  end
+
   -- Get old content: local file for ~M (conflict), context for M
   local old_content
   if file.status == '~M' then

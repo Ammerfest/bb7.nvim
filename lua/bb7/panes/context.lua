@@ -592,6 +592,56 @@ local function move_selection(delta)
   end
 end
 
+-- Cycle through files (skip directories), wrapping at ends
+-- delta: 1 for next, -1 for previous
+-- modified_only: if true, only cycle through M/~M/A files
+function M.cycle_file(delta, modified_only)
+  if #state.flat_list == 0 then return end
+
+  -- Build list of candidate indices
+  local candidates = {}
+  for i, item in ipairs(state.flat_list) do
+    if not item.node.is_dir then
+      if not modified_only then
+        table.insert(candidates, i)
+      elseif item.node.file and (item.node.file.status == 'M' or item.node.file.status == '~M' or item.node.file.status == 'A') then
+        table.insert(candidates, i)
+      end
+    end
+  end
+
+  if #candidates == 0 then return end
+
+  -- Find current position in candidates
+  local current_pos = nil
+  for i, idx in ipairs(candidates) do
+    if idx == state.selected_idx then
+      current_pos = i
+      break
+    end
+  end
+
+  -- Calculate next position (wrap around)
+  local next_pos
+  if current_pos then
+    next_pos = ((current_pos - 1 + delta) % #candidates) + 1
+  else
+    next_pos = delta > 0 and 1 or #candidates
+  end
+
+  state.selected_idx = candidates[next_pos]
+
+  render()
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_set_cursor(state.win, { state.selected_idx, 0 })
+  end
+
+  local file = get_current_file()
+  if state.on_file_selected then
+    state.on_file_selected(file)
+  end
+end
+
 -- Keep cursor at column 0 and sync selection
 local function lock_cursor_column()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
@@ -775,21 +825,28 @@ local function write_to_destination(file, dest_path, content)
   local dir = vim.fn.fnamemodify(full_path, ':h')
   vim.fn.mkdir(dir, 'p')
 
-  -- Write file to local filesystem
-  local f = io.open(full_path, 'w')
-  if not f then
-    log.error('Cannot write file ' .. dest_path)
-    return false
-  end
-  f:write(content)
-  f:close()
-
-  -- Reload buffer if open
   local bufnr = vim.fn.bufnr(full_path)
   if bufnr ~= -1 then
+    -- Buffer exists: write through Neovim for atomic mtime update.
+    -- This preserves undo history and prevents W12 ("file changed since reading").
+    local lines = vim.split(content, '\n', { plain = true })
+    -- Remove trailing empty string from split (Neovim adds final newline on write)
+    if #lines > 0 and lines[#lines] == '' then
+      table.remove(lines)
+    end
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     vim.api.nvim_buf_call(bufnr, function()
-      vim.cmd('edit!')
+      vim.cmd('write!')
     end)
+  else
+    -- No buffer open: write directly (no mtime to desync)
+    local f = io.open(full_path, 'w')
+    if not f then
+      log.error('Cannot write file ' .. dest_path)
+      return false
+    end
+    f:write(content)
+    f:close()
   end
 
   return true
@@ -925,11 +982,44 @@ local function put_all()
   end
 end
 
--- Enter preview mode (focus preview pane)
+-- Find the flat_list index for the first file matching any of the given paths
+local function find_file_idx_by_paths(paths)
+  if not paths or #paths == 0 then return nil end
+  local path_set = {}
+  for _, p in ipairs(paths) do
+    path_set[p] = true
+  end
+  for i, item in ipairs(state.flat_list) do
+    if not item.node.is_dir and item.node.file and path_set[item.node.file.path] then
+      return i
+    end
+  end
+  return nil
+end
+
 -- Refresh the file list
-function M.refresh(callback)
+-- opts (optional table):
+--   select_paths: list of paths to prefer for selection (picks first match)
+--   callback: function called after refresh completes (legacy positional arg also supported)
+function M.refresh(callback_or_opts, _legacy_unused)
+  local callback, select_paths
+  if type(callback_or_opts) == 'function' then
+    callback = callback_or_opts
+  elseif type(callback_or_opts) == 'table' then
+    callback = callback_or_opts.callback
+    select_paths = callback_or_opts.select_paths
+  end
+
   build_file_list(function()
-    -- Clamp selection BEFORE render: prefer selecting a file over a directory (so caret shows)
+    -- If caller specified paths to select, try those first
+    if select_paths and #select_paths > 0 then
+      local idx = find_file_idx_by_paths(select_paths)
+      if idx then
+        state.selected_idx = idx
+      end
+    end
+
+    -- Clamp selection: prefer selecting a file over a directory (so caret shows)
     if #state.flat_list > 0 then
       if state.selected_idx < 1 or state.selected_idx > #state.flat_list then
         -- Out of range: select first file
