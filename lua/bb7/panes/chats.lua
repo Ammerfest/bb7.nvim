@@ -499,7 +499,6 @@ function M.setup_keymaps(buf)
   vim.keymap.set('n', 'k', function() move_selection(-1) end, opts)
 
   -- Actions
-  vim.keymap.set('n', '<Space>', select_chat, opts)
   vim.keymap.set('n', '<CR>', select_chat, opts)
   vim.keymap.set('n', 'n', M.new_chat, opts)
   vim.keymap.set('n', 'r', rename_chat, opts)
@@ -594,7 +593,7 @@ end
 
 -- Get the shortcut hints for this pane
 function M.get_hints()
-  return 'Select: <Space> | New: n | Pin: p | Rename: r | Delete: d'
+  return 'Select: <CR> | New: n | Pin: p | Rename: r | Delete: d'
 end
 
 -- Cleanup

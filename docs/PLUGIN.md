@@ -51,6 +51,8 @@ lua/bb7/
 │   ├── shared.lua         # Shared state and constants
 │   ├── layout.lua         # Layout computation, window creation, resize
 │   └── session.lua        # Session restore/save (pane views, active pane)
+├── split.lua              # Bottom split input view (lightweight alternative to full UI)
+├── status.lua             # Statusline indicator (streaming/unread state)
 ├── client.lua             # Backend process management, JSON protocol
 ├── picker.lua             # Generic fuzzy picker component
 ├── models.lua             # Model selection and favorites
@@ -267,7 +269,8 @@ Available icon variables: `bb7_{type}_icon` and `bb7_{type}_icon_fg` where `{typ
 
 | Command | Description |
 |---------|-------------|
-| `:BB7` | Toggle UI |
+| `:BB7` | Toggle UI (closes split if open) |
+| `:BB7Split` | Toggle bottom split input (lightweight message composer) |
 | `:BB7Init` | Initialize BB-7 in current directory (creates `.bb7/`) |
 | `:BB7Add [path[:start:end]]` | Add file or section to context (supports visual selection) |
 | `:BB7AddReadonly [path]` | Add file to context as read-only |
@@ -281,6 +284,60 @@ Available icon variables: `bb7_{type}_icon` and `bb7_{type}_icon_fg` where `{typ
 | `:BB7Version` | Show BB-7 version |
 | `:BB7Search` | Search chats via Telescope (requires Telescope) |
 | `:BB7EditInstructions [level]` | Edit instructions file (project/global/system) |
+
+## Split Input View (`split.lua`)
+
+The split view opens a bottom Neovim split with just the input pane, letting the user compose messages while seeing their editor buffers. It reuses `panes/input.lua` as a singleton — when the split opens, it calls `panes_input.init()` to take ownership.
+
+### Keymaps
+
+Same as full UI input pane (send, model picker, reasoning toggle), plus:
+- `<Esc>` / `q` / `<C-c>` — close split
+
+### Winbar
+
+Shows: `BB-7 │ {chat_title} │ {model} │ {reasoning}`
+
+### State transitions
+
+| From | `:BB7` | `:BB7Split` |
+|------|--------|-------------|
+| Editor (no split) | Open full UI | Open split |
+| Editor + split | Close split, open full UI | Close split |
+| BB7 full UI | Close full UI | Close full UI, open split |
+
+## Statusline API (`status.lua`)
+
+Provides streaming/unread indicators for the user's statusline.
+
+### State machine
+
+```
+idle ──[message sent from split]──> streaming ──[stream done]──> unread ──[full UI opened]──> idle
+```
+
+### API
+
+```lua
+local status = require('bb7.status')
+
+status.status()      -- Symbol string ('○', '●', or '')
+status.status_hl()   -- Highlight group name ('DiagnosticWarn', 'DiagnosticInfo', or nil)
+status.raw_status()  -- 'streaming', 'unread', or nil
+```
+
+See `docs/CONFIGURATION.md` for statusline integration examples (mini.statusline, lualine, plain).
+
+### Configuration
+
+```lua
+require('bb7').setup({
+  status = {
+    streaming = { enabled = true, symbol = '○', highlight = 'DiagnosticWarn' },
+    unread    = { enabled = true, symbol = '●', highlight = 'DiagnosticInfo' },
+  },
+})
+```
 
 ## Error Handling
 

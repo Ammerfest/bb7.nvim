@@ -660,6 +660,11 @@ function M.set_reasoning_level(level)
   state.reasoning_level = level or 'none'
 end
 
+-- Get current reasoning level
+function M.get_reasoning_level()
+  return state.reasoning_level
+end
+
 -- Get footer text for display (shows reasoning indicator and current model)
 function M.get_footer()
   if not state.current_model then

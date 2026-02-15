@@ -32,6 +32,12 @@ local default_config = {
       color = 'Comment',  -- Spinner and "Generating..." text color
     },
   },
+
+  -- Statusline indicator configuration
+  status = {
+    streaming = { enabled = true, symbol = '○', highlight = 'DiagnosticWarn' },
+    unread    = { enabled = true, symbol = '●', highlight = 'DiagnosticInfo' },
+  },
 }
 
 local config = {}
@@ -59,10 +65,29 @@ function M.setup(opts)
     preview.set_spinner_frames(config.chat_style.spinner.frames)
   end
 
+  -- Pass status config
+  if config.status then
+    require('bb7.status').set_config(config.status)
+  end
+
   -- Create user commands
   vim.api.nvim_create_user_command('BB7', function()
+    local split = require('bb7.split')
+    if split.is_open() then
+      split.close()
+    end
     ui.toggle()
   end, { desc = 'Toggle BB7' })
+
+  vim.api.nvim_create_user_command('BB7Split', function()
+    local split = require('bb7.split')
+    if ui.is_open() then
+      ui.close()
+      split.open()
+    else
+      split.toggle()
+    end
+  end, { desc = 'Toggle BB7 split input' })
 
   -- BB7Init - Initialize bb7 in current directory
   vim.api.nvim_create_user_command('BB7Init', function()
@@ -746,6 +771,13 @@ function M.setup_highlights()
   -- System messages (fork warnings, etc.): hint/info style
   vim.api.nvim_set_hl(0, 'BB7SystemMessageBar', { fg = get_fg('DiagnosticHint') })
   vim.api.nvim_set_hl(0, 'BB7SystemMessageText', { fg = get_fg('Comment') })
+
+  -- Statusline indicators (fg only — bg inherited from statusline section)
+  local status_cfg = (config.status or {})
+  local streaming_hl = (status_cfg.streaming or {}).highlight or 'DiagnosticWarn'
+  local unread_hl = (status_cfg.unread or {}).highlight or 'DiagnosticInfo'
+  vim.api.nvim_set_hl(0, 'BB7StatusStreaming', { fg = resolve_color(streaming_hl, false) or get_fg('DiagnosticWarn') })
+  vim.api.nvim_set_hl(0, 'BB7StatusUnread', { fg = resolve_color(unread_hl, false) or get_fg('DiagnosticInfo') })
 end
 
 function M.open()

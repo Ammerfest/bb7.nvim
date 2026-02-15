@@ -57,189 +57,233 @@ When `~M` occurs (user modified locally while LLM also modified):
 | `~M` | Output file with conflict warning |
 | (blank) | Context file |
 
-## Future: Diff-Based Approach
+## V2: Region-Based Diffs (Planned)
 
-Complete files become impractical for large files. The LLM should output just the changes.
+Complete files become impractical for large files. V2 adds a `modify_file` tool that specifies only the changed regions.
 
-### Approach Comparison
+### Design Principles
 
-#### 1. Search/Replace (Aider, Claude Code)
+1. **One mental model**: A change locates a region of lines in the file and replaces it. `content` is exactly what will be in the file at that location.
+2. **Anchors are small**: 1-4 lines to locate the region. The LLM never reproduces large blocks of old code.
+3. **No flags**: Anchors are always part of the replaced region. Include them in `content` to keep them, modify them in `content` to change them, omit them to delete them.
+4. **Fail fast**: If anchors don't match, return an error. The LLM retries or falls back to `write_file`.
 
-```
-<<<<<<< SEARCH
-def hello():
-    print("hello")
-=======
-def hello():
-    print("hello, world!")
->>>>>>> REPLACE
-```
+### Configuration
 
-**Pros:**
-- Simple format
-- Easy for LLM to generate
-- Works for small, targeted changes
-
-**Cons:**
-- Ambiguous if search text appears multiple times
-- Large search blocks are error-prone (LLM may not reproduce exactly)
-- No anchoring mechanism
-
-#### 2. Anchor-Based Replacement (Proposed for BB-7)
-
-Instead of reproducing old code, use small anchors to define boundaries:
-
-```
-<<<<<<< BEFORE (4 lines)
-    def hello():
-        """Say hello."""
-        # Original implementation
-        pass
-======= MODIFIED
-        print("hello, world!")
-        return True
-======= AFTER (4 lines)
-
-    def goodbye():
-        """Say goodbye."""
-        print("bye")
->>>>>>>
+```lua
+require('bb7').setup({
+  diff_mode = true,  -- default: true; set false to use only write_file
+})
 ```
 
-**Algorithm:**
-1. Find BEFORE lines in file (small anchor, easy exact match)
-2. Find AFTER lines in file (small anchor, easy exact match)
-3. Delete everything between them (implicit old content)
-4. Insert MODIFIED chunk
+When `diff_mode = false`, the backend does not expose the `modify_file` tool. The LLM only sees `write_file` (V1 behavior). This is a safety valve in case diffs prove unreliable with certain models or workflows.
 
-**Key insight**: The old content is never specified - it's implicitly "whatever is between the anchors." The LLM only outputs:
-- Small anchors (4 lines each) → high accuracy, easy to reproduce
-- New content → no matching needed, just insertion
+### Tools
 
-**Pros:**
-- Small anchors are easy for LLM to reproduce exactly
-- Large modifications don't need to match anything
-- No ambiguity if anchors are unique in the file
-- Scales to any size modification
+When `diff_mode = true`, two tools are available:
 
-**Cons:**
-- Requires unique anchor sequences (rare edge case)
-- Slightly more complex format than search/replace
+- **`write_file(path, content)`** — New files and full rewrites.
+- **`modify_file(path, changes[])`** — Everything else.
 
-#### 3. Opencode's Apply Patch Format
-
-Opencode uses a custom patch format with explicit operations:
-
-```
-*** Begin Patch
-*** Update File: src/main.py
-@@ def hello():
--    print("hello")
-+    print("hello, world!")
-*** End Patch
-```
-
-**Format details:**
-- `*** Add File: <path>` - Create new file
-- `*** Delete File: <path>` - Remove file
-- `*** Update File: <path>` - Modify file
-- `*** Move to: <new_path>` - Rename (optional, with Update)
-- `@@` lines provide context anchors
-- `-` prefix: remove line
-- `+` prefix: add line
-- ` ` (space) prefix: unchanged context line
-
-**Hunks structure:**
-```
-{
-  type: "update",
-  path: "src/main.py",
-  chunks: [
-    {
-      old_lines: ["    print(\"hello\")"],
-      new_lines: ["    print(\"hello, world!\")"],
-      change_context: "def hello():"
-    }
-  ]
-}
-```
-
-**Pros:**
-- Explicit operation types (add/delete/update/move)
-- Context anchors (`@@` lines) for disambiguation
-- Supports end-of-file anchoring
-- Multiple chunks per file
-- File moves/renames
-
-**Cons:**
-- More complex format for LLM to generate
-- Still requires `old_lines` to be specified (error-prone for large changes)
-- Requires robust multi-pass line matching to handle LLM inaccuracies
-
-### Opencode's Robustness Strategy
-
-Rather than requiring exact matches, opencode uses multi-pass matching:
-
-1. **Exact match**: Line equals line
-2. **Rstrip**: Ignore trailing whitespace
-3. **Full trim**: Ignore leading/trailing whitespace
-4. **Unicode normalized**: Smart quotes, dashes normalized
-5. **End-of-file anchor**: Match from end if flagged
-
-For the Edit tool (search/replace), even more strategies:
-- Context anchors (match by first/last line of block)
-- Whitespace normalization (all whitespace to single space)
-- Indentation flexibility (ignore indentation)
-- Levenshtein similarity (fuzzy matching with threshold)
-
-### Recommendation for BB-7 V2
-
-Use the **anchor-based replacement** approach:
-
-1. **Keep `write_file` for small files** (< 500 lines) and new files
-2. **Add `modify_file` tool** using anchor-based replacement:
+### modify_file Format
 
 ```
 modify_file(path, changes):
   changes: [
     {
-      before: ["line1", "line2", "line3", "line4"],  // 4-line anchor
-      modified: ["new line 1", "new line 2", ...],   // any size
-      after: ["line5", "line6", "line7", "line8"]    // 4-line anchor
+      start: ["line1", "line2"],    // 1-4 lines, matched in file
+      end:   ["line3", "line4"],    // 1-4 lines, matched in file (optional)
+      content: ["new1", "new2"]     // exact replacement for the matched region
     }
   ]
 ```
 
-3. **Multi-pass anchor matching** for robustness:
-   - Exact match first
-   - Whitespace-normalized match (trailing whitespace)
-   - If still ambiguous, error and fall back to `write_file`
+- **`start`**: 1-4 lines that mark the beginning of the region.
+- **`end`**: 1-4 lines that mark the end of the region. Optional — when omitted, the region is exactly the `start` lines.
+- **`content`**: The complete replacement. What you put here is exactly what will be in the file.
 
-4. **Atomic application**: Verify all anchors found before modifying
+### Use Cases
 
-**Why this over opencode's approach:**
-- Opencode still requires `old_lines` to be specified
-- For large changes (40+ lines), reproducing old code is error-prone
-- Anchors are small (4 lines) so LLM accuracy is high
-- Simpler mental model: "replace what's between these markers"
+**Small surgical edit** (end omitted — region is just the start lines):
+```json
+{
+  "start": ["    print('hello')"],
+  "content": ["    print('hello world')"]
+}
+```
+
+**Insert code after a line**:
+```json
+{
+  "start": ["import os"],
+  "content": ["import os", "import sys"]
+}
+```
+The anchor is preserved by including it in content.
+
+**Replace function body, keep signature**:
+```json
+{
+  "start": ["def hello():"],
+  "end": ["def goodbye():"],
+  "content": ["def hello():", "    print('new body')", "", "def goodbye():"]
+}
+```
+Both anchors repeated in content — preserved.
+
+**Change function signature + body**:
+```json
+{
+  "start": ["def hello():"],
+  "end": ["def goodbye():"],
+  "content": ["def hello(name):", "    print(name)", "", "def goodbye():"]
+}
+```
+Top anchor changed in content, bottom preserved. Same format, no special flag.
+
+**Delete a block**:
+```json
+{
+  "start": ["# BEGIN DEBUG"],
+  "end": ["# END DEBUG"],
+  "content": []
+}
+```
+
+**Multiple changes in one file**:
+```json
+{
+  "path": "src/main.py",
+  "changes": [
+    {
+      "start": ["import os"],
+      "content": ["import os", "import sys"]
+    },
+    {
+      "start": ["def hello():"],
+      "end": ["def goodbye():"],
+      "content": ["def hello(name):", "    print(name)", "", "def goodbye():"]
+    }
+  ]
+}
+```
+
+### Application Algorithm
+
+1. Parse all changes for the file.
+2. For each change, locate the region:
+   - Find `start` lines in the file (consecutive match).
+   - If `end` is present, find `end` lines after `start` (consecutive match).
+   - Region = first line of `start` through last line of `end` (or last line of `start` if no `end`).
+3. Verify no regions overlap. Error if they do.
+4. Apply all changes bottom-to-top (so line numbers don't shift).
+
+### Anchor Matching
+
+Two-pass matching per line:
+
+1. **Exact match**: `file_line == anchor_line`
+2. **Trailing whitespace trimmed**: `file_line:trimEnd() == anchor_line:trimEnd()`
+
+No further fuzzy matching (no leading whitespace trim, no Levenshtein, no unicode normalization). Leading whitespace is preserved for matching because it is meaningful in many languages (Python, YAML, Makefile) and visible to the LLM. If anchors don't match after these two passes, the change fails.
+
+**Uniqueness**: Multi-line anchors (2-4 lines) make false matches extremely unlikely even with trailing whitespace trimmed. If ambiguity occurs, error and let the LLM retry with more anchor lines.
+
+### Error Handling and Retries
+
+When a change fails (anchor not found, ambiguous match, overlapping regions):
+
+1. **No changes are applied** (atomic — all or nothing per file).
+2. The error is returned to the LLM as a tool result error with specific details:
+   - Which file and which change failed
+   - Why: `"anchor not found"`, `"anchor not unique (lines 42, 187)"`, `"regions overlap"`
+   - The broken diff is included so the LLM can fix it without re-reasoning
+3. No automatic retry loop — the user controls the retry.
+
+#### Retry UX
+
+When a diff fails:
+
+1. **Frontend shows a compact system message** in the chat: e.g., "modify_file failed for src/main.py: anchor not unique". This is informational, not the full diff content.
+2. **Input field is prepopulated** with a retry prompt like: "The diff for src/main.py failed. Please retry."
+3. The user can edit this, add context, or just send as-is.
+
+#### What gets sent to the LLM on retry
+
+The retry payload includes:
+- The original tool call (with the broken diff) so the LLM can see what it tried
+- The specific error message so it knows what to fix
+- The user's retry message
+
+This gives the LLM enough context to fix the diff (e.g., use more anchor lines, pick different anchors) without re-reasoning the entire change from scratch.
+
+#### Ephemeral retry context
+
+Retry-related messages are **ephemeral** — they are stripped from the stored chat history once resolved:
+
+- The broken tool call, the error result, and the retry user message are removed after the LLM successfully applies the fix.
+- The chat log shows only the final successful result, not the failed attempts.
+- If the conversation is continued later, none of the retry context is re-sent to the LLM.
+- The frontend may show a collapsed note ("1 retry") for transparency, but not the full content.
+
+This keeps the chat history clean and avoids wasting tokens on stale retry context in future turns.
+
+### Context Lock During Requests
+
+All context-modifying operations are blocked while a request is active:
+
+| Operation | Locked? | Reason |
+|-----------|---------|--------|
+| `u` (update context) | Yes | Changes the base that diffs are applied against |
+| Add file | Yes | LLM doesn't know about it |
+| Remove file | Yes | LLM might be about to modify it |
+| `p` (apply output) | Yes | Moves output → context and deletes output; confusing if new output arrives |
+| `x` (discard output) | Yes | Removes output while LLM might produce more changes to the same file |
+| View file/diff (`gf`, `gd`) | No | Read-only, harmless |
+
+**Why lock `p`?** Technically safe — `ApplyFile` updates context to match the output and deletes the output, so the diff base is preserved and anchors still match. But allowing it invites users to modify context state during requests, creating confusing intermediate states (applied version on disk, new unapplied version arriving). Locking keeps the workflow clean: request running → read-only; request done → review and act.
+
+**Implementation**: Check `is_streaming()` at the top of each operation. Show a message like "Cannot modify context while a request is active" and return.
+
+### LLM Guidance (for system prompt)
+
+The following guidance goes in the system prompt or tool description:
+
+- Use `modify_file` for editing existing files. Use `write_file` for new files or full rewrites.
+- `content` is exactly what will be in the file at that location. Include anchor lines in `content` to keep them.
+- `start` and `end` are anchors that locate the region to replace. Use 1-4 lines each.
+- Prefer unique lines as anchors: function/method signatures, class declarations, import statements, unique comments.
+- Omit `end` for small, localized edits where `start` lines are sufficient.
+- Use `start` + `end` for large replacements to avoid reproducing old code.
+- Changes within one file must not overlap.
+- If two changes are close together (within ~5 lines), merge them into one change to reduce matching errors.
+- Do not mix `modify_file` and `write_file` for the same file in one response.
+
+## Approach Comparison
+
+### Prior Art
+
+**Search/Replace** (Aider, Claude Code): LLM outputs old and new blocks. Simple but requires exact reproduction of old code — error-prone for large changes, ambiguous when search text appears multiple times.
+
+**Opencode Patch**: Custom format with `@@` context anchors, `-`/`+` line prefixes. Still requires `old_lines` to be specified. Uses multi-pass fuzzy matching (exact → rstrip → trim → unicode normalize) plus 9-pass matching for their edit tool (Levenshtein, indentation flexibility, etc.).
+
+**BB-7 Region-Based**: Anchors locate the region, `content` replaces it entirely. Old code is never reproduced (only small anchors). Two-pass matching (exact + trailing trim). Single unified concept for insert, edit, replace, and delete.
+
+### Summary
+
+| Aspect | Search/Replace | Opencode Patch | BB-7 Region |
+|--------|---------------|----------------|-------------|
+| Old content | Must reproduce exactly | Must reproduce exactly | Not needed |
+| Anchor size | Full old block | 1 context line + old lines | 1-4 lines start + end |
+| Large changes | Error-prone | Error-prone | Reliable |
+| Matching | Exact (fragile) | 4-pass + 9-pass fuzzy | 2-pass (exact + rstrip) |
+| Mental model | Find old, put new | Patch format with prefixes | Locate region, replace |
+| Complexity | Simple | Complex | Medium |
 
 ## Implementation Priority
 
-1. **V1 (Current)**: Complete files, simple conflict UI
-2. **V2**: Add `patch_file` tool, keep `write_file` as fallback
-3. **V3**: Intelligent tool selection (patch for edits, write for new files)
-
-## Approach Comparison Summary
-
-| Aspect | Search/Replace | Opencode Patch | Anchor-Based (BB7) |
-|--------|---------------|----------------|---------------------|
-| Old content | Must reproduce exactly | Must reproduce exactly | Not needed (implicit) |
-| Anchoring | None (match full block) | Single context line | 4-line before + after |
-| Large changes | Error-prone | Error-prone | Reliable (small anchors) |
-| Complexity | Simple | Complex | Medium |
-| Ambiguity | High (duplicates) | Medium (context helps) | Low (8 lines total) |
-
-**Key difference**: Anchor-based replacement never asks the LLM to reproduce old code. It only needs to reproduce 8 lines of anchors (4 before, 4 after) regardless of how large the modification is.
+1. **V1 (Current)**: Complete files via `write_file`, conflict UI.
+2. **V2**: Add `modify_file` tool, keep `write_file` for new files and full rewrites.
 
 ## References
 

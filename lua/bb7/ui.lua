@@ -468,6 +468,9 @@ function M.open()
     return
   end
 
+  -- Clear unread status — user can now see the response
+  require('bb7.status').set('idle')
+
   if not ensure_config() then
     return
   end

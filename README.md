@@ -152,7 +152,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 
 | Key | Action |
 |-----|--------|
-| `<Space>` or `<CR>` | Select chat |
+| `<CR>` | Select chat |
 | `n` | New chat |
 | `d` | Delete chat |
 | `p` | Pin/unpin chat |

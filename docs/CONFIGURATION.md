@@ -177,6 +177,78 @@ require('bb7').setup({
 })
 ```
 
+## Statusline Indicator
+
+BB-7 provides a statusline API that shows streaming/unread state when using the split input view (`:BB7Split`). The indicator appears when a request is in-flight or a response is waiting to be read, and clears when the full UI is opened.
+
+### Configuration
+
+The `status` option in `setup()` controls the symbols and colors:
+
+```lua
+require('bb7').setup({
+  status = {
+    streaming = { enabled = true, symbol = '○', highlight = 'DiagnosticWarn' },
+    unread    = { enabled = true, symbol = '●', highlight = 'DiagnosticInfo' },
+  },
+})
+```
+
+The `highlight` field accepts a highlight group name (`'DiagnosticOk'`), a hex color (`'#50fa7b'`), or an ANSI color number (`2`). Only the foreground color is used — the background is inherited from the statusline section.
+
+### API
+
+```lua
+local status = require('bb7.status')
+status.status()      -- Symbol string ('○', '●', or '')
+status.status_hl()   -- Highlight group name ('BB7StatusStreaming', 'BB7StatusUnread', or nil)
+status.raw_status()  -- 'streaming', 'unread', or nil
+```
+
+### mini.statusline
+
+Complete example with custom colors — add the BB7 setup in your plugin config, then override `content.active` after `statusline.setup()` to include the indicator:
+
+```lua
+-- In your BB-7 plugin config:
+require('bb7').setup({
+  status = {
+    streaming = { enabled = true, symbol = '○', highlight = 'DiagnosticWarn' },
+    unread    = { enabled = true, symbol = '●', highlight = '#50fa7b' },
+  },
+})
+
+-- In your mini.statusline config:
+local statusline = require('mini.statusline')
+statusline.setup({ use_icons = vim.g.have_nerd_font })
+
+local bb7_status = require('bb7.status')
+
+statusline.config.content.active = function()
+  local mode, mode_hl = statusline.section_mode({ trunc_width = 120 })
+  local git           = statusline.section_git({ trunc_width = 40 })
+  local diagnostics   = statusline.section_diagnostics({ trunc_width = 75 })
+  local filename      = statusline.section_filename({ trunc_width = 140 })
+  local fileinfo      = statusline.section_fileinfo({ trunc_width = 120 })
+  local location      = '%2l:%-2v'
+  local search        = statusline.section_searchcount({ trunc_width = 75 })
+  local bb7           = bb7_status.status()
+
+  return statusline.combine_groups({
+    { hl = mode_hl,                        strings = { mode } },
+    { hl = 'MiniStatuslineDevinfo',        strings = { git, diagnostics } },
+    '%<',
+    { hl = 'MiniStatuslineFilename',       strings = { filename } },
+    '%=',
+    { hl = bb7_status.status_hl(),         strings = { bb7 } },
+    { hl = 'MiniStatuslineFileinfo',       strings = { fileinfo } },
+    { hl = mode_hl,                        strings = { search, location } },
+  })
+end
+```
+
+Other statusline plugins can use `status()` and `status_hl()` similarly — the key is to use `status_hl()` for the section's highlight so the foreground color is applied without overriding the section's background.
+
 ## Telescope Integration
 
 Add files to BB-7 context directly from any Telescope picker. Add this to your `telescope.setup()`:
