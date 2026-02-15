@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -157,7 +158,14 @@ func (l *Logger) ToolCall(name string, args string) {
 	if !l.enabled {
 		return
 	}
-	l.logf("TOOL", "[%s] %s", name, truncate(args, 500))
+	var pretty json.RawMessage
+	if json.Unmarshal([]byte(args), &pretty) == nil {
+		if formatted, err := json.MarshalIndent(pretty, "  ", "  "); err == nil {
+			l.logf("TOOL", "[%s]\n  %s", name, string(formatted))
+			return
+		}
+	}
+	l.logf("TOOL", "[%s] %s", name, args)
 }
 
 // Close closes the log file.

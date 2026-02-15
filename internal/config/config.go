@@ -21,6 +21,7 @@ type Config struct {
 	TitleModel         string `json:"title_model"`          // Model for auto-generating chat titles (cheap/fast)
 	AllowDataRetention *bool  `json:"allow_data_retention"` // Allow providers that retain data (default: true)
 	AllowTraining      *bool  `json:"allow_training"`       // Allow providers that train on data (default: false)
+	DiffMode           *bool  `json:"diff_mode"`            // Enable modify_file tool for region-based diffs (default: true)
 }
 
 // Load reads the config from ~/.config/bb7/config.json.
@@ -70,6 +71,10 @@ func LoadFrom(path string) (*Config, error) {
 	if cfg.AllowTraining == nil {
 		f := false
 		cfg.AllowTraining = &f
+	}
+	if cfg.DiffMode == nil {
+		dm := true
+		cfg.DiffMode = &dm
 	}
 
 	return &cfg, nil

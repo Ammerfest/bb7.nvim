@@ -66,7 +66,7 @@ type StreamCallback func(event StreamEvent)
 // ChatStream sends a chat request and streams the response.
 // The callback is called for each event (content chunks, tool calls, completion).
 // If reasoning is non-nil, extended thinking is enabled with the specified effort level.
-func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, callback StreamCallback) error {
+func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, diffMode bool, callback StreamCallback) error {
 	// Prepend system message
 	allMessages := make([]Message, 0, len(messages)+1)
 	allMessages = append(allMessages, Message{
@@ -78,7 +78,7 @@ func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, mes
 	reqBody := ChatRequest{
 		Model:     model,
 		Messages:  allMessages,
-		Tools:     DefaultTools(),
+		Tools:     DefaultTools(diffMode),
 		Stream:    true,
 		Reasoning: reasoning,
 		Provider:  c.providerPreferences(),
@@ -265,6 +265,37 @@ func ParseWriteFileArgs(argsJSON string) (*WriteFileArgs, error) {
 	}
 	if args.Path == "" {
 		return nil, errors.New("write_file: missing path")
+	}
+	return &args, nil
+}
+
+// ParseModifyFileArgs parses the arguments JSON for a modify_file tool call.
+func ParseModifyFileArgs(argsJSON string) (*ModifyFileArgs, error) {
+	var args ModifyFileArgs
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return nil, err
+	}
+	if args.Path == "" {
+		return nil, errors.New("modify_file: missing path")
+	}
+	if len(args.Changes) == 0 {
+		return nil, errors.New("modify_file: no changes")
+	}
+	for i := range args.Changes {
+		c := &args.Changes[i]
+		if len(c.Start) == 0 {
+			return nil, fmt.Errorf("modify_file: change %d: empty start", i)
+		}
+		if len(c.Start) > 4 {
+			return nil, fmt.Errorf("modify_file: change %d: start exceeds 4 lines", i)
+		}
+		if len(c.End) > 4 {
+			return nil, fmt.Errorf("modify_file: change %d: end exceeds 4 lines", i)
+		}
+		// JSON null or missing content → normalize to empty slice
+		if c.Content == nil {
+			c.Content = []string{}
+		}
 	}
 	return &args, nil
 }

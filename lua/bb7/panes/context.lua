@@ -1012,7 +1012,7 @@ function M.refresh(callback_or_opts, _legacy_unused)
 
   build_file_list(function()
     -- If caller specified paths to select, try those first
-    if select_paths and #select_paths > 0 then
+    if type(select_paths) == 'table' and #select_paths > 0 then
       local idx = find_file_idx_by_paths(select_paths)
       if idx then
         state.selected_idx = idx

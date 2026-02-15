@@ -25,11 +25,13 @@ func setupSendIntegrationEnv(t *testing.T, baseURL string) {
 	oldActiveStream := activeStream
 
 	appState = state.New()
+	diffModeTrue := true
 	appConfig = &config.Config{
 		APIKey:       "test-key",
 		BaseURL:      baseURL,
 		DefaultModel: "test-model",
 		TitleModel:   "test-title-model",
+		DiffMode:     &diffModeTrue,
 	}
 	llmClient = llm.NewClient(baseURL, appConfig.APIKey, false, true)
 	resetActiveStreamForTest()

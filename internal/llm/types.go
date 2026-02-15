@@ -105,6 +105,19 @@ type WriteFileArgs struct {
 	Content string `json:"content"`
 }
 
+// ModifyFileChange represents a single change within a modify_file tool call.
+type ModifyFileChange struct {
+	Start   []string `json:"start"`
+	End     []string `json:"end,omitempty"`
+	Content []string `json:"content"`
+}
+
+// ModifyFileArgs is the parsed arguments for the modify_file tool.
+type ModifyFileArgs struct {
+	Path    string             `json:"path"`
+	Changes []ModifyFileChange `json:"changes"`
+}
+
 // BalanceResponse from /api/v1/credits endpoint.
 type BalanceResponse struct {
 	Data struct {

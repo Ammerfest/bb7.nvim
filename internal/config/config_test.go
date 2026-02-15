@@ -54,6 +54,25 @@ func TestLoadFrom(t *testing.T) {
 		if cfg.DefaultModel != "anthropic/claude-sonnet-4" {
 			t.Errorf("DefaultModel = %q, want default", cfg.DefaultModel)
 		}
+		if cfg.DiffMode == nil || !*cfg.DiffMode {
+			t.Error("DiffMode should default to true")
+		}
+	})
+
+	t.Run("diff_mode false", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.json")
+		content := `{"api_key": "sk-test-123", "diff_mode": false}`
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.DiffMode == nil || *cfg.DiffMode {
+			t.Error("DiffMode should be false when set explicitly")
+		}
 	})
 
 	t.Run("missing file", func(t *testing.T) {

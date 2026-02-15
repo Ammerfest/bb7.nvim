@@ -1,0 +1,115 @@
+## File Tools
+
+You have two file tools. `modify_file` is your primary tool:
+
+- `modify_file` — Apply targeted changes to an existing file. Use this for all edits to existing files, regardless of how many changes are needed.
+- `write_file` — Write a complete file. Use this only for creating new files. Every `write_file` call must contain the complete file content.
+
+For existing files, always use `modify_file` — even for large edits spanning many regions. Only use `write_file` on an existing file if you are replacing it with entirely different content (different structure, different purpose). When in doubt, use `modify_file`.
+
+Rules for all file tool calls:
+- One file per call. Each call targets exactly one file path.
+- One call per file. Do not call any file tool more than once for the same path in a single response.
+- Do not mix tools for the same file. Never use both `modify_file` and `write_file` for the same path in one response.
+
+## modify_file Reference
+
+### Definitions
+
+`modify_file(path, changes)` applies a list of changes to an existing file. Each change locates a contiguous region of lines in the file and replaces it entirely.
+
+A **change** has three fields:
+- `start` (required): Array of 1-4 strings. Must match consecutive lines in the file exactly once.
+- `end` (optional): Array of 1-4 strings. Must match consecutive lines that occur after the `start` match exactly once.
+- `content` (required): Array of strings. The exact, complete replacement for the matched region.
+
+The **region** of a change is:
+- If `end` is omitted: the lines matched by `start`.
+- If `end` is present: all lines from the first line of the `start` match through the last line of the `end` match, inclusive.
+
+**Replacement**: The entire region is removed and `content` is inserted in its place. To preserve a line from the region, repeat it in `content`. To modify a line, include a modified copy in `content`. To delete the entire region, pass an empty `content` array.
+
+**Matching**: Anchors are compared to file lines by exact string equality. IMPORTANT: Anchors must match exactly once! If anchors can match at more than one place in the file, the tool call fails. Use multi-line anchors (2-4 lines) to disambiguate.
+
+**Ordering**: Changes must not overlap. They may be listed in any order.
+
+### Examples
+
+All examples operate on this file:
+```
+apple
+banana
+cherry
+date
+elderberry
+fig
+banana
+grape
+honeydew
+kiwi
+lemon
+```
+
+**Replace one line** (change "cherry" to "cranberry"):
+```json
+{"start": ["cherry"], "content": ["cranberry"]}
+```
+Region is line 3 ("cherry"). It is removed and replaced by "cranberry".
+
+**Insert after a line** (add "apricot" after "apple"):
+```json
+{"start": ["apple"], "content": ["apple", "apricot"]}
+```
+Region is line 1 ("apple"). It is removed and replaced by "apple", "apricot". The anchor is preserved because it appears in `content`.
+
+**Replace a range** (replace "date" through "fig" with one line):
+```json
+{"start": ["date"], "end": ["fig"], "content": ["dragonfruit"]}
+```
+Region is lines 4-6 ("date", "elderberry", "fig"). All three are removed and replaced by "dragonfruit".
+
+**Delete lines** (remove "honeydew" and "kiwi"):
+```json
+{"start": ["honeydew"], "end": ["kiwi"], "content": []}
+```
+Region is lines 9-10. Both are removed. Nothing is inserted.
+
+**Multi-line anchor** ("banana" appears on lines 2 and 7; target the second):
+```json
+{"start": ["fig", "banana"], "content": ["fig", "blueberry"]}
+```
+"fig", "banana" matches only at lines 6-7. Region is removed and replaced by "fig", "blueberry". The "fig" anchor is preserved in `content`.
+
+**Error — anchor not found**:
+```json
+{"start": ["orange"], "content": ["tangerine"]}
+```
+"orange" does not exist in the file. The change fails.
+
+**Error — anchor not unique**:
+```json
+{"start": ["banana"], "content": ["plantain"]}
+```
+"banana" matches lines 2 and 7. The change fails. Fix: use a multi-line anchor like `["apple", "banana"]` or `["fig", "banana"]`.
+
+**Error — overlapping regions**:
+```json
+[
+  {"start": ["cherry"], "end": ["elderberry"], "content": ["new"]},
+  {"start": ["date"], "content": ["new"]}
+]
+```
+"date" (line 4) is inside the first region (lines 3-5). The regions overlap. The entire call fails.
+
+### Anchor Selection
+
+- Prefer unique lines: function signatures, class declarations, import statements, unique comments.
+- If a single line is ambiguous, use 2-3 lines as the anchor.
+- Do not use common lines like `}` or blank lines as single-line anchors.
+
+### Guidelines
+
+- Omit `end` for small, localized edits where `start` lines cover the entire region.
+- Use `start` + `end` for larger replacements to avoid reproducing unchanged code.
+- If two changes are close together (within ~5 lines), merge them into one change.
+- Changes within one file must not overlap.

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/youruser/bb7/internal/config"
+	"github.com/youruser/bb7/internal/diff"
 	"github.com/youruser/bb7/internal/llm"
 	"github.com/youruser/bb7/internal/logging"
 	"github.com/youruser/bb7/internal/state"
@@ -30,6 +31,12 @@ var titlePrompt string
 
 //go:embed version.txt
 var version string
+
+//go:embed write_file_prompt.txt
+var writeFilePrompt string
+
+//go:embed modify_file_prompt.txt
+var modifyFilePrompt string
 
 var (
 	appState  = state.New()
@@ -263,6 +270,19 @@ func hasActiveStream() bool {
 	activeStream.mu.Lock()
 	defer activeStream.mu.Unlock()
 	return activeStream.requestID != ""
+}
+
+// resolveFileBase returns the base content for a modify_file call.
+// It checks output first (so diffs apply against the LLM's previous output),
+// then falls back to context. Must be called with stateMu held.
+func resolveFileBase(path string) (string, string) {
+	if content, err := appState.GetOutputFile(path); err == nil {
+		return content, "output"
+	}
+	if content, err := appState.GetContextFile(path); err == nil {
+		return content, "context"
+	}
+	return "", ""
 }
 
 func setTerminalStreamError(streamErr *string, msg string, cancel context.CancelFunc) {
@@ -1055,6 +1075,13 @@ func handleSend(reqID string, req map[string]any) {
 	var lastUsage *llm.Usage
 	var toolCallArgs []string
 	var writeCalls []llm.WriteFileArgs
+	type fileToolLog struct {
+		Tool string
+		Path string
+		Args string // raw JSON from LLM
+	}
+	var fileToolLogs []fileToolLog
+	var diffErrors []string // diff failures (LLM errors, not system errors)
 	seenOutputPaths := make(map[string]bool)
 	duplicatePathDetected := false
 
@@ -1074,6 +1101,13 @@ func handleSend(reqID string, req map[string]any) {
 	fullSystemPrompt := effectiveSystemPrompt
 	if instructionsBlock != "" {
 		fullSystemPrompt = effectiveSystemPrompt + "\n" + instructionsBlock
+	}
+
+	diffMode := *appConfig.DiffMode
+	if diffMode {
+		fullSystemPrompt += "\n" + modifyFilePrompt
+	} else {
+		fullSystemPrompt += "\n" + writeFilePrompt
 	}
 
 	logLLMMessage("SYSTEM", fullSystemPrompt, activeChatID, model)
@@ -1098,7 +1132,7 @@ func handleSend(reqID string, req map[string]any) {
 	// Stream response
 	log.Info("Starting LLM stream for model: %s", model)
 	streamStart := time.Now()
-	err = llmClient.ChatStream(ctx, model, fullSystemPrompt, messages, reasoningConfig, func(event llm.StreamEvent) {
+	err = llmClient.ChatStream(ctx, model, fullSystemPrompt, messages, reasoningConfig, diffMode, func(event llm.StreamEvent) {
 		switch event.Type {
 		case "content":
 			// Regular text content - stream to UI and accumulate
@@ -1122,13 +1156,15 @@ func handleSend(reqID string, req map[string]any) {
 				toolCallArgs = append(toolCallArgs, event.ToolCall.Function.Arguments)
 			}
 
-			if event.ToolCall.Function.Name == "write_file" {
+			switch event.ToolCall.Function.Name {
+			case "write_file":
 				args, err := llm.ParseWriteFileArgs(event.ToolCall.Function.Arguments)
 				if err != nil {
 					log.Error("Failed to parse write_file args: %v", err)
 					return // Skip malformed tool calls
 				}
 				writeCalls = append(writeCalls, *args)
+				fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "write_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
 				if seenOutputPaths[args.Path] {
 					log.Error("Duplicate write_file for path in single response: %s", args.Path)
 					if !duplicatePathDetected {
@@ -1158,6 +1194,69 @@ func handleSend(reqID string, req map[string]any) {
 				log.Info("%s: %s (%d bytes)", action, args.Path, len(args.Content))
 				outputFiles = append(outputFiles, args.Path)
 				respond(reqID, map[string]any{"type": "chunk", "content": "\n[" + action + ": " + args.Path + "]\n"})
+
+			case "modify_file":
+				args, err := llm.ParseModifyFileArgs(event.ToolCall.Function.Arguments)
+				if err != nil {
+					log.Error("Failed to parse modify_file args: %v", err)
+					setTerminalStreamError(&streamErr, fmt.Sprintf("modify_file parse error: %v", err), cancel)
+					return
+				}
+				fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "modify_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
+				if seenOutputPaths[args.Path] {
+					log.Error("Duplicate file output for path in single response: %s", args.Path)
+					if !duplicatePathDetected {
+						setTerminalStreamError(&streamErr, "Duplicate file output for path in single response: "+args.Path, cancel)
+						duplicatePathDetected = true
+					}
+					return
+				}
+				seenOutputPaths[args.Path] = true
+
+				// Resolve base content: previous output first, then context
+				stateMu.Lock()
+				base, baseSource := resolveFileBase(args.Path)
+				stateMu.Unlock()
+				if baseSource == "" {
+					msg := fmt.Sprintf("modify_file: %s not in context or output", args.Path)
+					log.Error(msg)
+					setTerminalStreamError(&streamErr, msg, cancel)
+					return
+				}
+
+				// Convert llm.ModifyFileChange → diff.Change
+				diffChanges := make([]diff.Change, len(args.Changes))
+				for i, c := range args.Changes {
+					diffChanges[i] = diff.Change{
+						Start:   c.Start,
+						End:     c.End,
+						Content: c.Content,
+					}
+				}
+
+				result, err := diff.Apply(diff.SplitLines(base), diffChanges)
+				if err != nil {
+					detail := fmt.Sprintf("modify_file %s: %v", args.Path, err)
+					log.Error(detail)
+					diffErrors = append(diffErrors, detail)
+					return
+				}
+
+				newContent := diff.JoinLines(result)
+				writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
+
+				stateMu.Lock()
+				if err := appState.WriteOutputFile(args.Path, newContent); err != nil {
+					stateMu.Unlock()
+					log.Error("Failed to write file %s: %v", args.Path, err)
+					setTerminalStreamError(&streamErr, fmt.Sprintf("Failed to write file %s: %v", args.Path, err), cancel)
+					return
+				}
+				stateMu.Unlock()
+
+				log.Info("Assistant modified (diff): %s (%d bytes, base=%s)", args.Path, len(newContent), baseSource)
+				outputFiles = append(outputFiles, args.Path)
+				respond(reqID, map[string]any{"type": "chunk", "content": "\n[Assistant modified: " + args.Path + "]\n"})
 			}
 
 		case "done":
@@ -1175,6 +1274,61 @@ func handleSend(reqID string, req map[string]any) {
 	if err == nil && streamErr != "" {
 		err = errors.New(streamErr)
 	}
+
+	// Always log the assistant response (even on error/cancel) so the debug
+	// log contains what the LLM actually sent.
+	var assistantRaw strings.Builder
+	if thinkingContent.Len() > 0 {
+		assistantRaw.WriteString(thinkingContent.String())
+		if textContent.Len() > 0 {
+			assistantRaw.WriteString("\n\n")
+		}
+	}
+	if textContent.Len() > 0 {
+		assistantRaw.WriteString(textContent.String())
+	}
+	if len(fileToolLogs) > 0 || len(toolCallArgs) > 0 {
+		assistantRaw.WriteString("\n\n")
+		assistantRaw.WriteString(makeMarker("tool calls", '-'))
+		assistantRaw.WriteString("\n")
+		for i, ftl := range fileToolLogs {
+			header := fmt.Sprintf("@%s index=%d path=%s", ftl.Tool, i, ftl.Path)
+			assistantRaw.WriteString(header + "\n")
+			assistantRaw.WriteString(ftl.Args)
+			if !strings.HasSuffix(ftl.Args, "\n") {
+				assistantRaw.WriteString("\n")
+			}
+			assistantRaw.WriteString("\n")
+		}
+		// Include any raw tool arguments that did not parse into file tool calls.
+		if len(fileToolLogs) == 0 && len(toolCallArgs) > 0 {
+			for i, raw := range toolCallArgs {
+				assistantRaw.WriteString(fmt.Sprintf("@tool_raw index=%d\n", i))
+				assistantRaw.WriteString(raw)
+				if !strings.HasSuffix(raw, "\n") {
+					assistantRaw.WriteString("\n")
+				}
+				assistantRaw.WriteString("\n")
+			}
+		}
+	}
+	if len(diffErrors) > 0 {
+		assistantRaw.WriteString("\n\n")
+		assistantRaw.WriteString(makeMarker("diff errors", '-'))
+		assistantRaw.WriteString("\n")
+		for _, de := range diffErrors {
+			assistantRaw.WriteString(de)
+			assistantRaw.WriteString("\n")
+		}
+	}
+	if err != nil {
+		assistantRaw.WriteString("\n\n")
+		assistantRaw.WriteString(makeMarker("error", '-'))
+		assistantRaw.WriteString("\n")
+		assistantRaw.WriteString(err.Error())
+		assistantRaw.WriteString("\n")
+	}
+	logLLMMessage("ASSISTANT", assistantRaw.String(), activeChatID, model)
 
 	if err != nil {
 		msg := streamErr
@@ -1243,45 +1397,6 @@ func handleSend(reqID string, req map[string]any) {
 		respond(reqID, map[string]any{"type": "error", "message": msg})
 		return
 	}
-
-	var assistantRaw strings.Builder
-	if thinkingContent.Len() > 0 {
-		assistantRaw.WriteString(thinkingContent.String())
-		if textContent.Len() > 0 {
-			assistantRaw.WriteString("\n\n")
-		}
-	}
-	if textContent.Len() > 0 {
-		assistantRaw.WriteString(textContent.String())
-	}
-	if len(writeCalls) > 0 || len(toolCallArgs) > 0 {
-		assistantRaw.WriteString("\n\n")
-		assistantRaw.WriteString(makeMarker("tool calls", '-'))
-		assistantRaw.WriteString("\n")
-		for i, call := range writeCalls {
-			header := fmt.Sprintf("@write_file index=%d path=%s", i, call.Path)
-			assistantRaw.WriteString(header + "\n")
-			if call.Content != "" {
-				assistantRaw.WriteString(call.Content)
-				if !strings.HasSuffix(call.Content, "\n") {
-					assistantRaw.WriteString("\n")
-				}
-			}
-			assistantRaw.WriteString("\n")
-		}
-		// Include any raw tool arguments that did not parse into write calls.
-		if len(writeCalls) == 0 && len(toolCallArgs) > 0 {
-			for i, raw := range toolCallArgs {
-				assistantRaw.WriteString(fmt.Sprintf("@tool_raw index=%d\n", i))
-				assistantRaw.WriteString(raw)
-				if !strings.HasSuffix(raw, "\n") {
-					assistantRaw.WriteString("\n")
-				}
-				assistantRaw.WriteString("\n")
-			}
-		}
-	}
-	logLLMMessage("ASSISTANT", assistantRaw.String(), activeChatID, model)
 
 	// Build final parts: thinking first, then text content, then file events at the end
 	if textContent.Len() > 0 {
@@ -1364,6 +1479,17 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	doneResp["duration"] = streamDuration
 	respond(reqID, doneResp)
+
+	// Diff errors are LLM mistakes, not system failures. Add a system message
+	// after the normal done response so the chat shows what happened without
+	// triggering error UI.
+	if len(diffErrors) > 0 {
+		stateMu.Lock()
+		if addErr := appState.AddSystemMessage("BB-7 failed to apply file changes."); addErr != nil {
+			log.Error("Failed to record diff error system message: %v", addErr)
+		}
+		stateMu.Unlock()
+	}
 }
 
 // handleGenerateTitle generates a title for a chat based on the first message.

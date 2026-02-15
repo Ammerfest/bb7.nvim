@@ -23,7 +23,59 @@ var WriteFileTool = Tool{
 	},
 }
 
+// ModifyFileTool applies region-based diffs to an existing file.
+var ModifyFileTool = Tool{
+	Type: "function",
+	Function: ToolFunction{
+		Name:        "modify_file",
+		Description: "Apply targeted changes to an existing file using anchor-based regions.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{
+					"type":        "string",
+					"description": "Relative file path of the existing file to modify",
+				},
+				"changes": map[string]any{
+					"type":        "array",
+					"description": "List of changes to apply to the file",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"start": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"minItems":    1,
+								"maxItems":    4,
+								"description": "1-4 consecutive lines that mark the start of the region to replace",
+							},
+							"end": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"minItems":    1,
+								"maxItems":    4,
+								"description": "1-4 consecutive lines that mark the end of the region (optional; omit for small edits where start lines are the entire region)",
+							},
+							"content": map[string]any{
+								"type":        "array",
+								"items":       map[string]any{"type": "string"},
+								"description": "Exact replacement lines for the matched region",
+							},
+						},
+						"required": []string{"start", "content"},
+					},
+				},
+			},
+			"required": []string{"path", "changes"},
+		},
+	},
+}
+
 // DefaultTools returns the tools to include in every request.
-func DefaultTools() []Tool {
+// When diffMode is true, the modify_file tool is included alongside write_file.
+func DefaultTools(diffMode bool) []Tool {
+	if diffMode {
+		return []Tool{WriteFileTool, ModifyFileTool}
+	}
 	return []Tool{WriteFileTool}
 }

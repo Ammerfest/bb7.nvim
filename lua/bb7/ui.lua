@@ -469,7 +469,11 @@ function M.open()
   end
 
   -- Clear unread status — user can now see the response
-  require('bb7.status').set('idle')
+  -- But don't clear 'streaming' status (e.g., opened full UI mid-stream from split)
+  local sts = require('bb7.status')
+  if sts.raw_status() == 'unread' then
+    sts.set('idle')
+  end
 
   if not ensure_config() then
     return
@@ -552,6 +556,7 @@ function M.open()
     on_message_sent = function(content)
       -- Start streaming in preview, showing user message immediately
       panes_preview.start_streaming(content)
+      require('bb7.status').set('streaming')
     end,
     on_stream_chunk = function(chunk)
       panes_preview.append_stream(chunk)
@@ -563,6 +568,7 @@ function M.open()
       -- User-initiated cancel: treat as done (partial response is saved by backend)
       if err == 'Response aborted by user.' then
         panes_preview.end_streaming()
+        require('bb7.status').set('idle')
         client.request({ action = 'chat_get' }, function(chat, get_err)
           if not get_err and chat then
             panes_preview.set_chat(chat)
@@ -573,6 +579,7 @@ function M.open()
         return
       end
       panes_preview.show_send_error(err)
+      require('bb7.status').set('idle')
     end,
     check_send = function()
       if panes_preview.has_send_error() then
@@ -599,6 +606,7 @@ function M.open()
     on_estimate_refreshed = update_context_estimate,
     on_stream_done = function(output_files, usage)
       panes_preview.end_streaming(usage)
+      require('bb7.status').set('idle')
 
       -- Update provider pane with usage info
       if usage then
@@ -666,6 +674,21 @@ function M.open()
   panes_preview.init(state.panes[4].buf, state.panes[4].win)
   panes_input.init(state.panes[5].buf, state.panes[5].win)
 
+  -- Resume active stream in preview pane (e.g., opened full UI mid-stream from split).
+  -- Skip if preview.init() already restored streaming from persistent state (close/reopen case).
+  if client.has_active_stream() and not panes_preview.is_streaming() then
+    local stream_buf = client.get_stream_buffer()
+    if stream_buf then
+      panes_preview.start_streaming(stream_buf.user_message or '')
+      if stream_buf.reasoning and stream_buf.reasoning ~= '' then
+        panes_preview.append_reasoning_stream(stream_buf.reasoning)
+      end
+      if stream_buf.content and stream_buf.content ~= '' then
+        panes_preview.append_stream(stream_buf.content)
+      end
+    end
+  end
+
   -- Create hint line
   local hint = layout.create_hint_line(current_layout)
   state.hint_win = hint.win
@@ -705,8 +728,8 @@ function M.open()
         panes_input.set_model(model_id)
         update_pane_borders()
         update_context_estimate()
-        -- Persist model to active chat
-        if client.is_initialized() then
+        -- Persist model to active chat (skip during active stream to avoid backend error)
+        if client.is_initialized() and not client.has_active_stream() then
           client.send({ action = 'save_chat_settings', model = model_id })
         end
       end,
@@ -856,6 +879,41 @@ function M.close()
 
   -- Save session state before cleanup
   session.save_session_state()
+
+  -- If a stream is active, reconnect minimal handlers so status updates on finish.
+  -- panes_input.cleanup() will nil its callbacks, orphaning the client stream handlers.
+  if client.has_active_stream() then
+    local status = require('bb7.status')
+    local persistent = require('bb7.panes.preview.shared').persistent
+    local chat_id = panes_preview.get_chat() and panes_preview.get_chat().id or nil
+    client.set_stream_handlers({
+      on_chunk = function(_) end,
+      on_reasoning = function(_) end,
+      on_done = function(_, usage)
+        -- Finalize persistent streaming state (mirrors end_streaming)
+        if persistent.stream_start_time then
+          persistent.last_duration = os.time() - persistent.stream_start_time
+        end
+        persistent.is_streaming = false
+        persistent.stream_start_time = nil
+        persistent.last_stream_chat_id = chat_id
+        if usage then
+          persistent.last_usage = usage
+        end
+        status.set('unread')
+      end,
+      on_error = function(err)
+        persistent.is_streaming = false
+        persistent.stream_start_time = nil
+        if err == 'Response aborted by user.' then
+          status.set('idle')
+        else
+          status.set('idle')
+          log.error(err)
+        end
+      end,
+    })
+  end
 
   -- Mark as closed immediately to prevent re-entry from WinClosed autocmd
   state.is_open = false
