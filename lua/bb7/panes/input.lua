@@ -24,9 +24,11 @@ local state = {
   on_stream_reasoning = nil, -- Callback for reasoning chunks
   on_stream_done = nil,   -- Callback when streaming completes
   on_stream_error = nil,  -- Callback when streaming fails with error
+  on_diff_error = nil,    -- Callback when diff errors occur
   on_mode_changed = nil,  -- Callback when vim mode changes (for hint updates)
   on_footer_changed = nil, -- Callback when footer content changes (reasoning toggle)
   on_estimate_refreshed = nil, -- Callback after token estimate refreshes
+  on_dismiss_retry = nil, -- Callback for Ctrl-x dismiss of retry context
   check_send = nil,        -- Callback before send: returns error string to block, nil to allow
   estimate = nil,    -- Current token estimate { total, potential_savings }
   estimate_timer = nil,  -- Debounce timer for input-based re-estimation
@@ -36,6 +38,7 @@ local state = {
   augroup = nil,     -- Autocmd group
   draft_timer = nil, -- Debounce timer for draft saving
   last_saved_draft = nil, -- Track last saved draft to avoid redundant saves
+  retry_context = nil, -- {tool_calls = [...], errors = [...]} for diff retry
 }
 
 -- Get the current input content
@@ -86,6 +89,12 @@ local function build_stream_handlers()
         end
       end
     end,
+    on_diff_error = function(data)
+      state.sending = false
+      if state.on_diff_error then
+        state.on_diff_error(data)
+      end
+    end,
   }
 end
 
@@ -132,6 +141,12 @@ local function send_message()
     context_pane.clear_applied_files()
   end
 
+  -- Capture retry context (sent as separate field, not mixed into content)
+  local retry = state.retry_context
+  if retry then
+    state.retry_context = nil
+  end
+
   state.sending = true
 
   -- Notify that we're starting to send (show original content in UI)
@@ -154,6 +169,9 @@ local function send_message()
 
   -- Send to backend (with applied files note if any, and current model)
   local request = { action = 'send', content = content }
+  if retry then
+    request.retry_context = retry
+  end
   if state.current_model then
     request.model = state.current_model
     -- Persist the model selection globally when a message is sent.
@@ -259,12 +277,21 @@ local function cycle_reasoning()
 end
 
 local function cancel_send()
-  if not state.sending then
-    log.info('No request in progress')
+  if state.sending then
+    state.sending = false
+    client.cancel_active_stream()
     return
   end
-  state.sending = false
-  client.cancel_active_stream()
+  if state.retry_context then
+    -- Abort retry: clear context, clear input, notify callback
+    state.retry_context = nil
+    clear_input()
+    if state.on_dismiss_retry then
+      state.on_dismiss_retry()
+    end
+    return
+  end
+  log.info('No request in progress')
 end
 
 M.cancel_send = cancel_send
@@ -342,9 +369,11 @@ function M.set_callbacks(callbacks)
   state.on_stream_reasoning = callbacks.on_stream_reasoning
   state.on_stream_done = callbacks.on_stream_done
   state.on_stream_error = callbacks.on_stream_error
+  state.on_diff_error = callbacks.on_diff_error
   state.on_mode_changed = callbacks.on_mode_changed
   state.on_footer_changed = callbacks.on_footer_changed
   state.on_estimate_refreshed = callbacks.on_estimate_refreshed
+  state.on_dismiss_retry = callbacks.on_dismiss_retry
   state.check_send = callbacks.check_send
 end
 
@@ -545,6 +574,10 @@ function M.get_hints()
     return 'Streaming... | Cancel: <C-x>'
   end
 
+  if state.retry_context then
+    return 'Retry: <CR> | Abort: <C-x>'
+  end
+
   local send_key = vim.g.bb7_send_key or 'shift_enter'
 
   local mode = vim.fn.mode()
@@ -634,14 +667,17 @@ function M.cleanup()
   state.current_model = nil
   state.reasoning_level = 'none'
   state.last_saved_draft = nil
+  state.retry_context = nil
   state.on_message_sent = nil
   state.on_stream_chunk = nil
   state.on_stream_reasoning = nil
   state.on_stream_done = nil
   state.on_stream_error = nil
+  state.on_diff_error = nil
   state.on_mode_changed = nil
   state.on_footer_changed = nil
   state.on_estimate_refreshed = nil
+  state.on_dismiss_retry = nil
   state.check_send = nil
 end
 
@@ -653,6 +689,21 @@ end
 -- Get current model
 function M.get_model()
   return state.current_model
+end
+
+-- Set retry context (from diff error)
+function M.set_retry_context(ctx)
+  state.retry_context = ctx
+end
+
+-- Clear retry context
+function M.clear_retry_context()
+  state.retry_context = nil
+end
+
+-- Check if retry context is active
+function M.has_retry_context()
+  return state.retry_context ~= nil
 end
 
 -- Set reasoning level (for screenshot mode)

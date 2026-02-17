@@ -893,6 +893,36 @@ function M.render()
     end
   end
 
+  -- Diff error warning (non-persistent, shown after messages)
+  if shared.state.diff_error and not shared.state.streaming then
+    format.add_empty_line(lines)
+    local error_icon, error_icon_fg = format.get_prefix_icon('BB7Error')
+    local text_width = format.get_text_width(0)
+    local log = require('bb7.log')
+    local detail_hint
+    if log.is_enabled() then
+      detail_hint = 'Details in ~/.bb7/logs/.'
+    else
+      detail_hint = 'Enable debug mode for details (BB7_DEBUG=1).'
+    end
+    local msg_lines = {
+      'Assistant failed to apply file changes. ' .. detail_hint,
+      'A retry will be sent with the next message. Use C-x to abort.',
+    }
+    local first_err_line = true
+    for _, msg_line in ipairs(msg_lines) do
+      local wrapped = format.wrap_text(msg_line, text_width)
+      for _, wrapped_line in ipairs(wrapped) do
+        local line_icon = first_err_line and error_icon or nil
+        local line_icon_fg = first_err_line and error_icon_fg or nil
+        format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', true, line_icon, line_icon_fg)
+        first_err_line = false
+      end
+    end
+    shared.state.last_rendered_type = 'error'
+    shared.state.last_rendered_role = nil
+  end
+
   -- Streaming: show user message first, then assistant response
   if shared.state.streaming then
     -- Show the user's message that's being responded to

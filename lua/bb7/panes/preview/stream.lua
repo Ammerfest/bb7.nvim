@@ -39,6 +39,7 @@ function M.start_streaming(user_message)
   shared.state.stream_reasoning_lines = {}
   shared.state.pending_user_message = user_message
   shared.state.send_error = nil -- Clear any previous send error
+  shared.state.diff_error = nil -- Clear any previous diff error
   shared.state.autoscroll = true
 
   -- Track streaming in persistent state
@@ -143,6 +144,19 @@ function M.show_send_error(error_msg)
       vim.api.nvim_win_set_cursor(shared.state.win, { 1, 0 })
     end
   end)
+end
+
+-- Show diff error warning in the preview pane
+function M.show_diff_error(errors)
+  shared.state.diff_error = errors
+  stop_spinner()
+  vim.schedule(render.render)
+end
+
+-- Clear diff error warning
+function M.clear_diff_error()
+  shared.state.diff_error = nil
+  vim.schedule(render.render)
 end
 
 function M.stop_spinner()

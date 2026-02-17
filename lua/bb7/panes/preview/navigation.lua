@@ -210,6 +210,9 @@ function M.fork_chat()
       log.info('Fork created')
     end
 
+    -- Clear any pending retry context (don't carry over to forked chat)
+    panes_input.clear_retry_context()
+
     -- Switch to new chat and focus input pane
     local ui = require('bb7.ui')
     ui.switch_chat(response.new_chat_id, function()
@@ -288,6 +291,9 @@ function M.edit_chat_message()
     else
       log.info('Edit applied')
     end
+
+    -- Clear any pending retry context (don't carry over to edited chat)
+    panes_input.clear_retry_context()
 
     client.request({ action = 'chat_get' }, function(chat, chat_err)
       if chat_err then

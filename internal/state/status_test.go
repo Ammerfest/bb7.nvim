@@ -418,6 +418,312 @@ func TestGetFileStatuses_Section(t *testing.T) {
 	}
 }
 
+func TestDiffLocalDone_NoChange(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	contextContent := "package main\n\nfunc hello() {}\n"
+	outputContent := "package main\n\nfunc hello() { fmt.Println(\"hi\") }\n"
+
+	s.ContextAdd("main.go", contextContent)
+	s.WriteOutputFile("main.go", outputContent)
+
+	// Local file matches context (user didn't apply anything)
+	os.WriteFile(s.ProjectRoot+"/main.go", []byte(contextContent), 0644)
+
+	result, err := s.DiffLocalDone("main.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	if result.Outcome != "none" {
+		t.Errorf("Expected outcome 'none', got %q", result.Outcome)
+	}
+
+	// Output should still exist
+	if _, err := s.GetOutputFile("main.go"); err != nil {
+		t.Error("Expected output file to still exist")
+	}
+
+	// Only the context_add event from ContextAdd — no new events from DiffLocalDone
+	if len(s.ActiveChat.Messages) != 1 {
+		t.Errorf("Expected 1 message (context_add only), got %d", len(s.ActiveChat.Messages))
+	}
+}
+
+func TestDiffLocalDone_FullApply(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	contextContent := "package main\n\nfunc hello() {}\n"
+	outputContent := "package main\n\nfunc hello() { fmt.Println(\"hi\") }\n"
+
+	s.ContextAdd("main.go", contextContent)
+	s.WriteOutputFile("main.go", outputContent)
+
+	// Local file matches output (user applied all hunks)
+	os.WriteFile(s.ProjectRoot+"/main.go", []byte(outputContent), 0644)
+
+	result, err := s.DiffLocalDone("main.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	if result.Outcome != "full" {
+		t.Errorf("Expected outcome 'full', got %q", result.Outcome)
+	}
+
+	// Context should now match output
+	cc, _ := s.GetContextFile("main.go")
+	if cc != outputContent {
+		t.Errorf("Expected context to match output, got %q", cc)
+	}
+
+	// Output should be deleted (ApplyFile deletes it)
+	if _, err := s.GetOutputFile("main.go"); err != ErrFileNotFound {
+		t.Error("Expected output file to be deleted after full apply")
+	}
+
+	// Should have UserApplyFile event (message 0 is context_add, message 1 is UserApplyFile)
+	if len(s.ActiveChat.Messages) != 2 {
+		t.Fatalf("Expected 2 messages, got %d", len(s.ActiveChat.Messages))
+	}
+	part := s.ActiveChat.Messages[1].Parts[0]
+	if part.Action != "UserApplyFile" {
+		t.Errorf("Expected action 'UserApplyFile', got %q", part.Action)
+	}
+
+	// Status should be Unchanged
+	statuses, _ := s.GetFileStatuses()
+	if statuses[0].Status != StatusUnchanged {
+		t.Errorf("Expected status '' after full apply, got %q", statuses[0].Status)
+	}
+}
+
+func TestDiffLocalDone_PartialApply(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	contextContent := "line1\nline2\nline3\n"
+	outputContent := "LINE1\nLINE2\nLINE3\n"
+
+	s.ContextAdd("main.go", contextContent)
+	s.WriteOutputFile("main.go", outputContent)
+
+	// Local has some hunks applied (differs from both context and output)
+	localContent := "LINE1\nline2\nLINE3\n"
+	os.WriteFile(s.ProjectRoot+"/main.go", []byte(localContent), 0644)
+
+	result, err := s.DiffLocalDone("main.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	if result.Outcome != "partial" {
+		t.Errorf("Expected outcome 'partial', got %q", result.Outcome)
+	}
+
+	// Context should now match local (synced)
+	cc, _ := s.GetContextFile("main.go")
+	if cc != localContent {
+		t.Errorf("Expected context to match local, got %q", cc)
+	}
+
+	// Output should still exist (has remaining hunks)
+	oc, err := s.GetOutputFile("main.go")
+	if err != nil {
+		t.Error("Expected output file to still exist after partial apply")
+	}
+	if oc != outputContent {
+		t.Errorf("Expected output unchanged, got %q", oc)
+	}
+
+	// Should have UserPartialApplyFile event (message 0 is context_add, message 1 is partial)
+	if len(s.ActiveChat.Messages) != 2 {
+		t.Fatalf("Expected 2 messages, got %d", len(s.ActiveChat.Messages))
+	}
+	part := s.ActiveChat.Messages[1].Parts[0]
+	if part.Action != "UserPartialApplyFile" {
+		t.Errorf("Expected action 'UserPartialApplyFile', got %q", part.Action)
+	}
+
+	// Status should still be Modified (output differs from new context)
+	statuses, _ := s.GetFileStatuses()
+	if statuses[0].Status != StatusModified {
+		t.Errorf("Expected status 'M' after partial apply, got %q", statuses[0].Status)
+	}
+}
+
+func TestDiffLocalDone_PartialApply_ReopenShowsRemaining(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	contextContent := "line1\nline2\nline3\n"
+	outputContent := "LINE1\nLINE2\nLINE3\n"
+
+	s.ContextAdd("main.go", contextContent)
+	s.WriteOutputFile("main.go", outputContent)
+
+	// Partial apply: only first and third lines changed
+	localContent := "LINE1\nline2\nLINE3\n"
+	os.WriteFile(s.ProjectRoot+"/main.go", []byte(localContent), 0644)
+
+	_, err := s.DiffLocalDone("main.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	// After partial apply, context=local, output=original output
+	// The diff between context and output should show only the unapplied hunk (line2 vs LINE2)
+	statuses, _ := s.GetFileStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("Expected 1 file, got %d", len(statuses))
+	}
+	f := statuses[0]
+	if f.Status != StatusModified {
+		t.Errorf("Expected status 'M', got %q", f.Status)
+	}
+	// Context should be the partially-applied version
+	if f.ContextContent != localContent {
+		t.Errorf("Expected context_content to be partially applied version")
+	}
+	// Output should still be the full LLM version
+	if f.OutputContent != outputContent {
+		t.Errorf("Expected output_content to be original LLM version")
+	}
+}
+
+func TestDiffLocalDone_OutputDeleted(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	s.ContextAdd("main.go", "original")
+
+	// No output file — should return "none" without error
+	os.WriteFile(s.ProjectRoot+"/main.go", []byte("original"), 0644)
+
+	result, err := s.DiffLocalDone("main.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	if result.Outcome != "none" {
+		t.Errorf("Expected outcome 'none', got %q", result.Outcome)
+	}
+}
+
+func TestDiffLocalDone_AddedFile_FullApply(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	outputContent := "package newfile\n\nfunc New() {}\n"
+
+	// Output-only file (not in context — A status)
+	s.WriteOutputFile("new.go", outputContent)
+
+	// Local matches output (user applied all)
+	os.WriteFile(s.ProjectRoot+"/new.go", []byte(outputContent), 0644)
+
+	result, err := s.DiffLocalDone("new.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	if result.Outcome != "full" {
+		t.Errorf("Expected outcome 'full', got %q", result.Outcome)
+	}
+
+	// File should now be in context
+	cc, err := s.GetContextFile("new.go")
+	if err != nil {
+		t.Fatalf("Expected file to be in context after full apply: %v", err)
+	}
+	if cc != outputContent {
+		t.Errorf("Expected context content to match output")
+	}
+
+	// Output should be deleted
+	if _, err := s.GetOutputFile("new.go"); err != ErrFileNotFound {
+		t.Error("Expected output file to be deleted")
+	}
+
+	// Should have UserApplyFile event
+	found := false
+	for _, msg := range s.ActiveChat.Messages {
+		for _, part := range msg.Parts {
+			if part.Action == "UserApplyFile" && part.Path == "new.go" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("Expected UserApplyFile event for new.go")
+	}
+}
+
+func TestDiffLocalDone_AddedFile_PartialApply(t *testing.T) {
+	s := setupTestState(t)
+	s.ChatNew("test")
+
+	outputContent := "LINE1\nLINE2\nLINE3\n"
+
+	// Output-only file (not in context)
+	s.WriteOutputFile("new.go", outputContent)
+
+	// Local has partial changes (differs from empty context and from output)
+	localContent := "LINE1\nline2\nLINE3\n"
+	os.WriteFile(s.ProjectRoot+"/new.go", []byte(localContent), 0644)
+
+	result, err := s.DiffLocalDone("new.go")
+	if err != nil {
+		t.Fatalf("DiffLocalDone failed: %v", err)
+	}
+
+	if result.Outcome != "partial" {
+		t.Errorf("Expected outcome 'partial', got %q", result.Outcome)
+	}
+
+	// File should now be in context with local content
+	cc, err := s.GetContextFile("new.go")
+	if err != nil {
+		t.Fatalf("Expected file to be in context: %v", err)
+	}
+	if cc != localContent {
+		t.Errorf("Expected context to match local, got %q", cc)
+	}
+
+	// Output should still exist
+	oc, err := s.GetOutputFile("new.go")
+	if err != nil {
+		t.Error("Expected output to still exist")
+	}
+	if oc != outputContent {
+		t.Errorf("Expected output unchanged, got %q", oc)
+	}
+
+	// Should have UserPartialApplyFile event
+	found := false
+	for _, msg := range s.ActiveChat.Messages {
+		for _, part := range msg.Parts {
+			if part.Action == "UserPartialApplyFile" && part.Path == "new.go" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("Expected UserPartialApplyFile event for new.go")
+	}
+}
+
+func TestDiffLocalDone_RequiresActiveChat(t *testing.T) {
+	s := setupTestState(t)
+
+	_, err := s.DiffLocalDone("file.go")
+	if err != ErrNoActiveChat {
+		t.Errorf("Expected ErrNoActiveChat, got %v", err)
+	}
+}
+
 func TestGetFileStatuses_MixedFullAndSection(t *testing.T) {
 	s := setupTestState(t)
 	s.ChatNew("test")

@@ -299,6 +299,137 @@ func (s *State) ApplyFileAs(originalPath, destPath string) (string, error) {
 	return content, nil
 }
 
+// DiffLocalDoneResult describes what happened after a vimdiff session closed.
+type DiffLocalDoneResult struct {
+	Outcome string // "none", "full", "partial"
+}
+
+// DiffLocalDone compares local, context, and output files after vimdiff closes
+// to determine what the user did (no change, full apply, or partial apply).
+func (s *State) DiffLocalDone(path string) (*DiffLocalDoneResult, error) {
+	if err := s.requireActiveChat(); err != nil {
+		return nil, err
+	}
+
+	// Read output file — if missing, nothing to compare
+	outputContent, err := s.GetOutputFile(path)
+	if err != nil {
+		return &DiffLocalDoneResult{Outcome: "none"}, nil
+	}
+
+	// Read local file from disk
+	localPath, err := SafeJoin(s.ProjectRoot, path)
+	if err != nil {
+		return nil, err
+	}
+	localData, err := os.ReadFile(localPath)
+	if err != nil {
+		return &DiffLocalDoneResult{Outcome: "none"}, nil
+	}
+	localContent := string(localData)
+
+	// Read context file — if not in context (A/!A status), treat as empty
+	contextContent := ""
+	cf := s.findContextFile(path)
+	if cf != nil {
+		contextContent, _ = s.GetContextFile(path)
+	}
+
+	localNorm := normalizeContent(localContent)
+	contextNorm := normalizeContent(contextContent)
+	outputNorm := normalizeContent(outputContent)
+
+	localMatchesContext := localNorm == contextNorm
+	localMatchesOutput := localNorm == outputNorm
+
+	switch {
+	case localMatchesContext:
+		// No change — user closed without applying anything
+		return &DiffLocalDoneResult{Outcome: "none"}, nil
+
+	case localMatchesOutput:
+		// Full apply — delegate to ApplyFile which handles both in-context and not-in-context
+		if _, err := s.ApplyFile(path); err != nil {
+			return nil, err
+		}
+		return &DiffLocalDoneResult{Outcome: "full"}, nil
+
+	default:
+		// Partial apply — update context to match local, keep output
+		if cf != nil {
+			// File is in context — update context storage
+			var prevVersion string
+			if cf.Version != "" {
+				prevVersion = cf.Version
+			} else {
+				prevVersion = HashFileVersion(cf.Path, contextContent)
+			}
+
+			storagePath, err := s.contextStoragePath(cf)
+			if err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(storagePath, []byte(localContent), 0644); err != nil {
+				return nil, err
+			}
+			cf.Version = HashFileVersion(cf.Path, localContent)
+
+			if err := s.addContextEvent(ContextEvent{
+				Action:      "UserPartialApplyFile",
+				Path:        cf.Path,
+				ReadOnly:    cf.ReadOnly,
+				External:    cf.External,
+				Version:     cf.Version,
+				PrevVersion: prevVersion,
+			}); err != nil {
+				return nil, err
+			}
+		} else {
+			// File not in context (A/!A status) — add to context with local content
+			if err := ValidateRelativePath(path); err != nil {
+				return nil, err
+			}
+
+			contextBase := s.contextDir(s.ActiveChat.ID)
+			fullPath, err := SafeJoin(contextBase, path)
+			if err != nil {
+				return nil, err
+			}
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(fullPath, []byte(localContent), 0644); err != nil {
+				return nil, err
+			}
+
+			s.ActiveChat.ContextFiles = append(s.ActiveChat.ContextFiles, ContextFile{
+				Path:     path,
+				ReadOnly: false,
+				External: false,
+				Version:  HashFileVersion(path, localContent),
+			})
+			cf = s.findContextFile(path)
+
+			if cf == nil {
+				return nil, ErrFileNotFound
+			}
+
+			if err := s.addContextEvent(ContextEvent{
+				Action:   "UserPartialApplyFile",
+				Path:     cf.Path,
+				ReadOnly: cf.ReadOnly,
+				External: cf.External,
+				Version:  cf.Version,
+				Added:    true,
+			}); err != nil {
+				return nil, err
+			}
+		}
+
+		return &DiffLocalDoneResult{Outcome: "partial"}, nil
+	}
+}
+
 // normalizeContent normalizes content for comparison (handles line endings).
 func normalizeContent(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")

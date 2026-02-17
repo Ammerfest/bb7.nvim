@@ -625,30 +625,60 @@ function M.open()
 
           -- Refresh token estimate (context may have changed with new output files)
           panes_input.refresh_estimate(update_context_estimate)
-
-          -- Generate title after first message exchange (exactly one user message)
-          -- Note: message count may exceed 2 due to context events (file writes)
-          if chat.messages then
-            local user_msg_count = 0
-            local first_user_msg = nil
-            for _, msg in ipairs(chat.messages) do
-              if msg.role == 'user' then
-                user_msg_count = user_msg_count + 1
-                if not first_user_msg then
-                  first_user_msg = msg
-                end
-              end
-            end
-            if user_msg_count == 1 and first_user_msg and first_user_msg.content then
-              client.generate_title(chat.id, first_user_msg.content, function(_, title_err)
-                if title_err then
-                  -- Silently ignore title generation errors
-                end
-              end)
-            end
-          end
         end
       end)
+    end,
+    on_diff_error = function(data)
+      panes_preview.end_streaming(data.usage)
+      require('bb7.status').set('idle')
+
+      -- Update provider pane with usage info
+      if data.usage then
+        panes_provider.update_usage(data.usage, panes_input.get_model())
+      end
+
+      -- Refresh chat from backend (assistant text message was saved),
+      -- then show diff error warning and set up retry context.
+      -- Order matters: set_chat() clears diff_error, so show_diff_error
+      -- must come after set_chat() completes.
+      client.request({ action = 'chat_get' }, function(chat, err)
+        if not err and chat then
+          panes_preview.set_chat(chat)
+          panes_context.set_chat(chat)
+          panes_input.refresh_estimate(update_context_estimate)
+        end
+
+        -- Show diff error warning in preview (after set_chat clears old state)
+        panes_preview.show_diff_error(data.errors)
+
+        -- Set retry context and prepopulate input
+        panes_input.set_retry_context({
+          tool_calls = data.tool_calls,
+          errors = data.errors,
+        })
+        panes_input.set_draft('Please retry the file changes.')
+
+        update_hints()
+      end)
+    end,
+    on_dismiss_retry = function()
+      -- Add system message via backend
+      client.request({ action = 'add_system_message', message = 'File changes failed to apply.' }, function(_, err)
+        if err then
+          log.error('Failed to add system message: ' .. err)
+          return
+        end
+        -- Refresh chat to show the system message
+        client.request({ action = 'chat_get' }, function(chat, get_err)
+          if not get_err and chat then
+            panes_preview.set_chat(chat)
+          end
+        end)
+      end)
+      -- Clear diff error display in preview
+      panes_preview.clear_diff_error()
+      -- Update hints
+      update_hints()
     end,
   })
 
@@ -901,6 +931,20 @@ function M.close()
           persistent.last_usage = usage
         end
         status.set('unread')
+      end,
+      on_diff_error = function(data)
+        -- Finalize persistent streaming state
+        if persistent.stream_start_time then
+          persistent.last_duration = os.time() - persistent.stream_start_time
+        end
+        persistent.is_streaming = false
+        persistent.stream_start_time = nil
+        persistent.last_stream_chat_id = chat_id
+        if data.usage then
+          persistent.last_usage = data.usage
+        end
+        -- Diff error is not a normal response — set idle, not unread
+        status.set('idle')
       end,
       on_error = function(err)
         persistent.is_streaming = false

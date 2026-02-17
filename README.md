@@ -230,6 +230,8 @@ Default: `anthropic/claude-sonnet-4`
 
 Open the model picker with `M` in the Input pane or `:BB7Model`. Any OpenRouter model with tool support works. Favorite models (toggle with `<C-f>` in picker) appear first.
 
+**Model compatibility:** BB-7 uses structured tool calls for file editing. Newer, more capable models handle these reliably. Smaller or older models (e.g. Haiku-class) often produce malformed tool calls and are not recommended for file editing. If a model consistently fails to apply changes, try a more capable one.
+
 ## Documentation
 
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — Styling, instruction files, Telescope integration

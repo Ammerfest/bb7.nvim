@@ -90,6 +90,16 @@ local function handle_output(line)
     return
   end
 
+  if msg_type == 'diff_error' then
+    if state.stream_handlers and state.stream_request_id == resp_id and state.stream_handlers.on_diff_error then
+      state.stream_handlers.on_diff_error(data)
+    end
+    state.stream_handlers = nil
+    state.stream_request_id = nil
+    state.stream_buffer = nil
+    return
+  end
+
   -- Handle async events (title_updated, etc.)
   if msg_type == 'title_updated' then
     if state.event_handlers.on_title_updated then

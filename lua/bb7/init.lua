@@ -480,12 +480,90 @@ function M.setup(opts)
       vim.schedule(function()
         -- Open local file
         vim.cmd('edit ' .. vim.fn.fnameescape(local_path))
+        local local_win = vim.api.nvim_get_current_win()
+        local local_buf = vim.api.nvim_get_current_buf()
 
         -- Open output file in vertical split
         vim.cmd('vertical diffsplit ' .. vim.fn.fnameescape(output_path))
+        local output_win = vim.api.nvim_get_current_win()
+        local output_buf = vim.api.nvim_get_current_buf()
+
+        -- Make output buffer readonly
+        vim.bo[output_buf].readonly = true
+        vim.bo[output_buf].modifiable = false
+        vim.bo[output_buf].bufhidden = 'wipe'
 
         -- Position cursor in the local file (left side)
         vim.cmd('wincmd h')
+
+        -- Set up post-close hook
+        local hook_fired = false
+        local augroup = vim.api.nvim_create_augroup('BB7DiffLocal', { clear = true })
+
+        local function on_diff_close()
+          if hook_fired then return end
+          hook_fired = true
+          vim.api.nvim_del_augroup_by_id(augroup)
+
+          -- Turn off diff mode on local window if it still exists
+          if vim.api.nvim_win_is_valid(local_win) then
+            vim.wo[local_win].diff = false
+            vim.wo[local_win].scrollbind = false
+            vim.wo[local_win].cursorbind = false
+            vim.wo[local_win].foldmethod = 'manual'
+          end
+
+          -- Auto-save local buffer if modified
+          if vim.api.nvim_buf_is_valid(local_buf) and vim.bo[local_buf].modified then
+            vim.api.nvim_buf_call(local_buf, function()
+              vim.cmd('silent write')
+            end)
+          end
+
+          -- Tell backend to compare the three files
+          client.request({ action = 'diff_local_done', path = path }, function(resp, cb_err)
+            if cb_err then
+              log.error(cb_err)
+              return
+            end
+
+            local outcome = resp and resp.outcome
+            if outcome == 'full' then
+              table.insert(context_pane.get_applied_files(), path)
+              log.info('Applied all changes to ' .. path)
+            elseif outcome == 'partial' then
+              log.info('Partially applied ' .. path .. ' (reopen diff for remaining)')
+            end
+            -- "none" → silent
+          end)
+        end
+
+        -- When output window closes: trigger post-close hook
+        vim.api.nvim_create_autocmd('WinClosed', {
+          group = augroup,
+          pattern = tostring(output_win),
+          once = true,
+          callback = function()
+            vim.schedule(on_diff_close)
+          end,
+        })
+
+        -- When local window closes: close output window too (cascades)
+        vim.api.nvim_create_autocmd('WinClosed', {
+          group = augroup,
+          pattern = tostring(local_win),
+          once = true,
+          callback = function()
+            vim.schedule(function()
+              if vim.api.nvim_buf_is_valid(output_buf) then
+                -- Wipe the buffer instead of closing the window to avoid E444
+                -- (bufhidden=wipe means the window will handle itself)
+                vim.cmd('bwipeout! ' .. output_buf)
+              end
+              on_diff_close()
+            end)
+          end,
+        })
 
         log.info('Use ]c/[c to navigate hunks, do/dp to apply changes')
       end)

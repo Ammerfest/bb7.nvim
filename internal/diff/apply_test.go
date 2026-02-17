@@ -15,7 +15,7 @@ func TestApply_SmallEditNoEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "package main\n\nfunc hello() {\n\tprintln(\"hello world\")\n}\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -32,7 +32,7 @@ func TestApply_InsertAfterLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "import os\nimport sys\n\nfunc main() {}\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -50,7 +50,7 @@ func TestApply_ReplaceFunctionBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "def hello():\n    print('new body')\n\ndef goodbye():\n    print('bye')\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -68,7 +68,7 @@ func TestApply_ChangeSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "def hello(name):\n    print(name)\n\ndef goodbye():\n    print('bye')\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -86,7 +86,7 @@ func TestApply_DeleteBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "code before\ncode after\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -110,7 +110,7 @@ func TestApply_MultipleNonOverlapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	// "    pass" after goodbye is the second "    pass" in the file
 	want := "import os\nimport sys\n\ndef hello():\n    pass\n\ndef goodbye():\n    print('bye')\n"
 	if got != want {
@@ -130,7 +130,7 @@ func TestApply_BottomToTopOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "LINE1\nline2\nline3\nLINE4\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -211,24 +211,91 @@ func TestApply_TrailingWhitespaceFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result[0] != "func hello(name string)" {
-		t.Errorf("result[0] = %q, want %q", result[0], "func hello(name string)")
+	if result.Lines[0] != "func hello(name string)" {
+		t.Errorf("result[0] = %q, want %q", result.Lines[0], "func hello(name string)")
 	}
 }
 
-func TestApply_LeadingWhitespacePreserved(t *testing.T) {
-	// Leading whitespace must match exactly — no fuzzy matching
-	lines := []string{"  indented", "    more indented"}
+func TestApply_LeadingWhitespaceTolerance(t *testing.T) {
+	// Pass 3 tolerates leading whitespace differences and adjusts content indentation
+	lines := []string{"    indented", "    more stuff"}
 	changes := []Change{{
-		Start:   []string{"indented"}, // missing leading spaces
+		Start:   []string{"indented"}, // missing 4 leading spaces — matches via pass 3
+		Content: []string{"changed"},
+	}}
+	result, err := Apply(lines, changes)
+	if err != nil {
+		t.Fatalf("unexpected error (pass 3 should tolerate leading whitespace): %v", err)
+	}
+	// Content should be re-indented to match the file's 4-space indent
+	if result.Lines[0] != "    changed" {
+		t.Errorf("result[0] = %q, want %q", result.Lines[0], "    changed")
+	}
+	if result.Lines[1] != "    more stuff" {
+		t.Errorf("result[1] = %q, want %q", result.Lines[1], "    more stuff")
+	}
+}
+
+func TestApply_LeadingWhitespaceToleranceMultiLine(t *testing.T) {
+	// Model sends 4 spaces, file has 8 — content should gain 4 spaces
+	lines := []string{
+		"        if condition:",
+		"            do_something()",
+		"            do_more()",
+		"        else:",
+	}
+	changes := []Change{{
+		Start:   []string{"    if condition:"},                                       // 4 spaces (should be 8)
+		End:     []string{"    else:"},                                                // 4 spaces (should be 8)
+		Content: []string{"    if condition:", "        do_new_thing()", "    else:"}, // 4+8+4 spaces
+	}}
+	result, err := Apply(lines, changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := JoinLines(result.Lines)
+	// Content indentation should be shifted +4 spaces
+	want := "        if condition:\n            do_new_thing()\n        else:\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestApply_LeadingWhitespaceEmptyLines(t *testing.T) {
+	// Empty lines in content should not get indentation added
+	lines := []string{"        code_here", "        more_code"}
+	changes := []Change{{
+		Start:   []string{"    code_here"},
+		Content: []string{"    new_code", "", "    more_new_code"},
+	}}
+	result, err := Apply(lines, changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Lines[0] != "        new_code" {
+		t.Errorf("result[0] = %q, want %q", result.Lines[0], "        new_code")
+	}
+	if result.Lines[1] != "" {
+		t.Errorf("result[1] = %q, want empty string", result.Lines[1])
+	}
+	if result.Lines[2] != "        more_new_code" {
+		t.Errorf("result[2] = %q, want %q", result.Lines[2], "        more_new_code")
+	}
+}
+
+func TestApply_LeadingWhitespaceAmbiguous(t *testing.T) {
+	// Pass 3 with trimmed whitespace can cause ambiguity
+	lines := []string{"  foo", "    foo", "bar"}
+	changes := []Change{{
+		Start:   []string{"foo"}, // matches both lines after trimming
 		Content: []string{"changed"},
 	}}
 	_, err := Apply(lines, changes)
 	if err == nil {
-		t.Fatal("expected error for mismatched leading whitespace")
+		t.Fatal("expected error for ambiguous whitespace-trimmed match")
 	}
-	if !strings.Contains(err.Error(), "anchor not found") {
-		t.Errorf("error = %q, want 'anchor not found'", err.Error())
+	if !strings.Contains(err.Error(), "anchor not unique") {
+		t.Errorf("error = %q, want 'anchor not unique'", err.Error())
 	}
 }
 
@@ -243,7 +310,7 @@ func TestApply_MultiLineAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "if a {\n    foo()\n}\nif a {\n    baz()\n}\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -262,7 +329,7 @@ func TestApply_EndAnchorForwardOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := JoinLines(result)
+	got := JoinLines(result.Lines)
 	want := "marker\nstuff\nstart_here\nreplaced\nmarker\n"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -285,9 +352,9 @@ func TestApply_ValidationEmptyStart(t *testing.T) {
 }
 
 func TestApply_ValidationStartTooLong(t *testing.T) {
-	lines := []string{"a", "b", "c", "d", "e"}
+	lines := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"}
 	changes := []Change{{
-		Start:   []string{"a", "b", "c", "d", "e"},
+		Start:   []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"},
 		Content: []string{"x"},
 	}}
 	_, err := Apply(lines, changes)
@@ -300,10 +367,10 @@ func TestApply_ValidationStartTooLong(t *testing.T) {
 }
 
 func TestApply_ValidationEndTooLong(t *testing.T) {
-	lines := []string{"a", "b", "c", "d", "e", "f"}
+	lines := []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"}
 	changes := []Change{{
 		Start:   []string{"a"},
-		End:     []string{"b", "c", "d", "e", "f"},
+		End:     []string{"b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"},
 		Content: []string{"x"},
 	}}
 	_, err := Apply(lines, changes)
@@ -336,8 +403,73 @@ func TestApply_NoChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result) != 2 || result[0] != "a" || result[1] != "b" {
-		t.Errorf("result = %v, want [a b]", result)
+	if len(result.Lines) != 2 || result.Lines[0] != "a" || result.Lines[1] != "b" {
+		t.Errorf("result = %v, want [a b]", result.Lines)
+	}
+}
+
+func TestApply_NoOpDropped(t *testing.T) {
+	lines := SplitLines("apple\nbanana\ncherry\n")
+	changes := []Change{
+		{Start: []string{"apple"}, Content: []string{"APPLE"}},          // real change
+		{Start: []string{"banana"}, Content: []string{"banana"}},        // no-op
+		{Start: []string{"cherry"}, Content: []string{"cherry"}},        // no-op
+	}
+	result, err := Apply(lines, changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := JoinLines(result.Lines)
+	want := "APPLE\nbanana\ncherry\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if len(result.DroppedNoOp) != 2 {
+		t.Errorf("DroppedNoOp = %v, want 2 entries", result.DroppedNoOp)
+	}
+}
+
+func TestApply_AllNoOps(t *testing.T) {
+	lines := SplitLines("apple\nbanana\n")
+	changes := []Change{
+		{Start: []string{"apple"}, Content: []string{"apple"}},
+		{Start: []string{"banana"}, Content: []string{"banana"}},
+	}
+	result, err := Apply(lines, changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := JoinLines(result.Lines)
+	want := "apple\nbanana\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if len(result.DroppedNoOp) != 2 {
+		t.Errorf("DroppedNoOp = %v, want 2 entries", result.DroppedNoOp)
+	}
+}
+
+func TestApply_NoOpWithEndAnchor(t *testing.T) {
+	lines := SplitLines("start\nmiddle\nend\nafter\n")
+	changes := []Change{
+		{
+			Start:   []string{"start"},
+			End:     []string{"end"},
+			Content: []string{"start", "middle", "end"}, // no-op: same as region
+		},
+		{Start: []string{"after"}, Content: []string{"AFTER"}}, // real change
+	}
+	result, err := Apply(lines, changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := JoinLines(result.Lines)
+	want := "start\nmiddle\nend\nAFTER\n"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if len(result.DroppedNoOp) != 1 || result.DroppedNoOp[0] != 0 {
+		t.Errorf("DroppedNoOp = %v, want [0]", result.DroppedNoOp)
 	}
 }
 

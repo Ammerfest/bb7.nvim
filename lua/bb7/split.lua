@@ -253,6 +253,14 @@ function M.open()
         -- Setup split-specific keymaps (after input keymaps so we override)
         setup_split_keymaps()
 
+        -- Register model change callback (updates input pane + winbar)
+        models.set_callbacks({
+          on_model_changed = function(model_id)
+            panes_input.set_model(model_id)
+            update_winbar()
+          end,
+        })
+
         -- Set winbar
         update_winbar()
 
@@ -283,6 +291,10 @@ function M.open()
             end
             status.set('idle')
             log.error(err_msg)
+          end,
+          on_diff_error = function(_)
+            status.set('idle')
+            log.warn('Diff failed — reopen to retry')
           end,
           on_footer_changed = function()
             update_winbar()

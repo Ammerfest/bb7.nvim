@@ -129,6 +129,7 @@ function M.set_chat(chat)
   end
   local had_error = state.send_error ~= nil
   state.send_error = instr_error
+  state.diff_error = nil -- Clear diff error on chat refresh
 
   -- Note: don't reset collapsed_reasoning here - preserve collapse state across chat refresh
   render.render()
@@ -173,6 +174,16 @@ end
 -- Show a send error inline in the preview pane
 function M.show_send_error(error_msg)
   stream.show_send_error(error_msg)
+end
+
+-- Show diff error warning in preview
+function M.show_diff_error(errors)
+  stream.show_diff_error(errors)
+end
+
+-- Clear diff error warning
+function M.clear_diff_error()
+  stream.clear_diff_error()
 end
 
 -- Clear send error (e.g., when user edits input to retry)
@@ -493,6 +504,7 @@ function M.cleanup()
   state.stream_reasoning_lines = {}
   state.pending_user_message = nil
   state.send_error = nil
+  state.diff_error = nil
   state.collapsed_reasoning = {}
   state.reasoning_line_map = {}
   state.anchor_lines = {}

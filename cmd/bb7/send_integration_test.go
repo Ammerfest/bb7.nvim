@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/youruser/bb7/internal/config"
 	"github.com/youruser/bb7/internal/llm"
@@ -171,6 +172,21 @@ func TestHandleSendIntegrationSuccess(t *testing.T) {
 			return
 		}
 
+		// Check if this is a non-streaming request (title generation)
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var reqBody map[string]any
+		json.Unmarshal(body, &reqBody)
+		if stream, ok := reqBody["stream"].(bool); !ok || !stream {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{
+					map[string]any{"message": map[string]any{"content": "Test Title"}},
+				},
+			})
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 
 		writeSSEJSON(t, w, map[string]any{
@@ -220,7 +236,11 @@ func TestHandleSendIntegrationSuccess(t *testing.T) {
 		})
 		writeSSEDone(t, w)
 	}))
-	defer server.Close()
+	defer func() {
+		// Wait briefly for async title generation goroutine to complete
+		time.Sleep(50 * time.Millisecond)
+		server.Close()
+	}()
 
 	setupSendIntegrationEnv(t, server.URL)
 
@@ -385,12 +405,10 @@ func TestHandleSendIntegrationDuplicateWriteTerminatesStream(t *testing.T) {
 		t.Fatalf("unexpected duplicate error message: %q", msg)
 	}
 
-	gotOutput, err := appState.GetOutputFile("dup.go")
-	if err != nil {
-		t.Fatalf("expected first output write to persist, got error: %v", err)
-	}
-	if gotOutput != "first" && gotOutput != "second" {
-		t.Fatalf("unexpected output content after duplicate write handling: %q", gotOutput)
+	// With atomic writes, no files are committed when the stream errors
+	_, err := appState.GetOutputFile("dup.go")
+	if err == nil {
+		t.Fatalf("expected no output file (atomic writes discard on error), but file exists")
 	}
 
 	msgs := appState.ActiveChat.Messages

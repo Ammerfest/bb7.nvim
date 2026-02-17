@@ -286,11 +286,11 @@ func ParseModifyFileArgs(argsJSON string) (*ModifyFileArgs, error) {
 		if len(c.Start) == 0 {
 			return nil, fmt.Errorf("modify_file: change %d: empty start", i)
 		}
-		if len(c.Start) > 4 {
-			return nil, fmt.Errorf("modify_file: change %d: start exceeds 4 lines", i)
+		if len(c.Start) > 10 {
+			return nil, fmt.Errorf("modify_file: change %d: start exceeds 10 lines", i)
 		}
-		if len(c.End) > 4 {
-			return nil, fmt.Errorf("modify_file: change %d: end exceeds 4 lines", i)
+		if len(c.End) > 10 {
+			return nil, fmt.Errorf("modify_file: change %d: end exceeds 10 lines", i)
 		}
 		// JSON null or missing content → normalize to empty slice
 		if c.Content == nil {

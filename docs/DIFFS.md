@@ -180,12 +180,13 @@ Top anchor changed in content, bottom preserved. Same format, no special flag.
 
 ### Anchor Matching
 
-Two-pass matching per line:
+Three-pass matching per line:
 
 1. **Exact match**: `file_line == anchor_line`
-2. **Trailing whitespace trimmed**: `file_line:trimEnd() == anchor_line:trimEnd()`
+2. **Trailing whitespace trimmed**: `trimRight(file_line) == trimRight(anchor_line)`
+3. **All whitespace trimmed**: `trimSpace(file_line) == trimSpace(anchor_line)`
 
-No further fuzzy matching (no leading whitespace trim, no Levenshtein, no unicode normalization). Leading whitespace is preserved for matching because it is meaningful in many languages (Python, YAML, Makefile) and visible to the LLM. If anchors don't match after these two passes, the change fails.
+Pass 3 tolerates leading indentation errors (models occasionally miscount nesting depth). No further fuzzy matching (no Levenshtein, no unicode normalization). If anchors don't match after these three passes, the change fails.
 
 **Uniqueness**: Multi-line anchors (2-4 lines) make false matches extremely unlikely even with trailing whitespace trimmed. If ambiguity occurs, error and let the LLM retry with more anchor lines.
 
@@ -200,33 +201,41 @@ When a change fails (anchor not found, ambiguous match, overlapping regions):
    - The broken diff is included so the LLM can fix it without re-reasoning
 3. No automatic retry loop — the user controls the retry.
 
+#### Atomic File Writes
+
+All file writes in a single response are buffered and committed together:
+
+- During streaming, file writes go to a pending buffer (not to disk).
+- **On success** (no diff errors): all pending writes are committed to output.
+- **On diff failure**: all pending writes are discarded. No files are written.
+- This is "all or nothing" per response — even if some `write_file` calls succeeded, a single `modify_file` failure discards everything.
+
 #### Retry UX
 
 When a diff fails:
 
-1. **Frontend shows a compact system message** in the chat: e.g., "modify_file failed for src/main.py: anchor not unique". This is informational, not the full diff content.
-2. **Input field is prepopulated** with a retry prompt like: "The diff for src/main.py failed. Please retry."
-3. The user can edit this, add context, or just send as-is.
+1. **Assistant text is preserved**: The assistant's text and thinking content is saved as a normal message (without file write events). It may contain valuable explanations.
+2. **Non-persistent warning**: A user-friendly error message appears at the bottom of the chat preview. Raw error details are only in debug logs (`BB7_DEBUG=1`).
+3. **Input prepopulated**: The input field is prepopulated with "Please retry the file changes."
+4. **Hidden retry context**: The frontend stores the error details and failed tool calls. When the user sends the retry message, this context is sent as a separate `retry_context` field — not part of the saved message. The backend injects it as a `@retry_context` block in the LLM request. The chat history stays clean.
+5. The user can edit the prepopulated text to add context, or just send as-is.
 
-#### What gets sent to the LLM on retry
+#### User Actions on Diff Failure
 
-The retry payload includes:
-- The original tool call (with the broken diff) so the LLM can see what it tried
-- The specific error message so it knows what to fix
-- The user's retry message
+| Action | Key | Effect |
+|--------|-----|--------|
+| **Retry** | `<CR>` / `<S-CR>` | Send the prepopulated message (retry context injected automatically) |
+| **Abort** | `<C-x>` | Add system message "File changes failed to apply.", clear retry state, continue conversation |
+| **Fork** | `<C-e>` | Existing fork mechanism to discard and redo the entire exchange |
 
-This gives the LLM enough context to fix the diff (e.g., use more anchor lines, pick different anchors) without re-reasoning the entire change from scratch.
+#### What the LLM sees on retry
 
-#### Ephemeral retry context
+The backend injects a `@retry_context` / `@end retry_context` block after the `@latest` block in the user message. This contains:
+- The specific error messages (anchor not found, not unique, etc.)
+- The original tool calls (JSON) so the LLM can see what it tried
+- A prompt to fix the anchors and retry
 
-Retry-related messages are **ephemeral** — they are stripped from the stored chat history once resolved:
-
-- The broken tool call, the error result, and the retry user message are removed after the LLM successfully applies the fix.
-- The chat log shows only the final successful result, not the failed attempts.
-- If the conversation is continued later, none of the retry context is re-sent to the LLM.
-- The frontend may show a collapsed note ("1 retry") for transparency, but not the full content.
-
-This keeps the chat history clean and avoids wasting tokens on stale retry context in future turns.
+The system prompt tells the LLM to fix errors in `@retry_context` while also following any additional instructions in `@latest`. The retry context is never saved to chat history — it exists only in the LLM request.
 
 ### Context Lock During Requests
 
@@ -267,7 +276,7 @@ The following guidance goes in the system prompt or tool description:
 
 **Opencode Patch**: Custom format with `@@` context anchors, `-`/`+` line prefixes. Still requires `old_lines` to be specified. Uses multi-pass fuzzy matching (exact → rstrip → trim → unicode normalize) plus 9-pass matching for their edit tool (Levenshtein, indentation flexibility, etc.).
 
-**BB-7 Region-Based**: Anchors locate the region, `content` replaces it entirely. Old code is never reproduced (only small anchors). Two-pass matching (exact + trailing trim). Single unified concept for insert, edit, replace, and delete.
+**BB-7 Region-Based**: Anchors locate the region, `content` replaces it entirely. Old code is never reproduced (only small anchors). 3-pass matching (exact + trailing trim + full trim). Single unified concept for insert, edit, replace, and delete.
 
 ### Summary
 
@@ -276,7 +285,7 @@ The following guidance goes in the system prompt or tool description:
 | Old content | Must reproduce exactly | Must reproduce exactly | Not needed |
 | Anchor size | Full old block | 1 context line + old lines | 1-4 lines start + end |
 | Large changes | Error-prone | Error-prone | Reliable |
-| Matching | Exact (fragile) | 4-pass + 9-pass fuzzy | 2-pass (exact + rstrip) |
+| Matching | Exact (fragile) | 4-pass + 9-pass fuzzy | 3-pass (exact + rstrip + trim) |
 | Mental model | Find old, put new | Patch format with prefixes | Locate region, replace |
 | Complexity | Simple | Complex | Medium |
 

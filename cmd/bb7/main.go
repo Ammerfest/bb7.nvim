@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -273,9 +274,13 @@ func hasActiveStream() bool {
 }
 
 // resolveFileBase returns the base content for a modify_file call.
-// It checks output first (so diffs apply against the LLM's previous output),
-// then falls back to context. Must be called with stateMu held.
-func resolveFileBase(path string) (string, string) {
+// It checks pending writes first (for files written earlier in the same
+// response), then output, then context. Must be called with stateMu held
+// (for output/context access).
+func resolveFileBase(path string, pendingWrites map[string]string) (string, string) {
+	if content, ok := pendingWrites[path]; ok {
+		return content, "pending"
+	}
 	if content, err := appState.GetOutputFile(path); err == nil {
 		return content, "output"
 	}
@@ -316,7 +321,9 @@ func actionMutatesChatState(action string) bool {
 		"output_delete",
 		"apply_file",
 		"apply_file_as",
-		"generate_title":
+		"diff_local_done",
+		"generate_title",
+		"add_system_message":
 		return true
 	default:
 		return false
@@ -353,11 +360,13 @@ func actionUsesChatState(action string) bool {
 		"get_file_statuses",
 		"apply_file",
 		"apply_file_as",
+		"diff_local_done",
 		"estimate_tokens",
 		"send",
 		"generate_title",
 		"get_customization_info",
-		"prepare_instructions":
+		"prepare_instructions",
+		"add_system_message":
 		return true
 	default:
 		return false
@@ -382,10 +391,12 @@ func actionBlockedDuringStream(action string) bool {
 		"context_remove_section",
 		"apply_file",
 		"apply_file_as",
+		"diff_local_done",
 		"output_delete",
 		"save_draft",
 		"save_chat_settings",
-		"prepare_instructions":
+		"prepare_instructions",
+		"add_system_message":
 		return true
 	default:
 		return false
@@ -811,6 +822,19 @@ func handleRequest(line string) {
 		}
 		respond(reqID, map[string]any{"type": "ok", "content": content})
 
+	case "diff_local_done":
+		path, _ := req["path"].(string)
+		if path == "" {
+			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: path"})
+			return
+		}
+		result, err := appState.DiffLocalDone(path)
+		if err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok", "outcome": result.Outcome})
+
 	case "apply_file_as":
 		path, _ := req["path"].(string)
 		destination, _ := req["destination"].(string)
@@ -890,6 +914,22 @@ func handleRequest(line string) {
 			return
 		}
 		respond(reqID, map[string]any{"type": "instructions_path", "path": path})
+
+	case "add_system_message":
+		if appState.ActiveChat == nil {
+			respond(reqID, errorResponse(state.ErrNoActiveChat))
+			return
+		}
+		message, _ := req["message"].(string)
+		if message == "" {
+			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: message"})
+			return
+		}
+		if err := appState.AddSystemMessage(message); err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok"})
 
 	default:
 		respond(reqID, map[string]any{"type": "error", "message": fmt.Sprintf("Unknown action: %s", action)})
@@ -1010,6 +1050,12 @@ func handleSend(reqID string, req map[string]any) {
 		return
 	}
 
+	// Extract retry context (sent as separate field, not part of saved message)
+	var retryContext *retryContextData
+	if rc, ok := req["retry_context"].(map[string]any); ok {
+		retryContext = parseRetryContext(rc)
+	}
+
 	// Load config if needed
 	if err := ensureConfig(); err != nil {
 		respond(reqID, errorResponse(err))
@@ -1058,7 +1104,7 @@ func handleSend(reqID string, req map[string]any) {
 	}
 
 	// Build a single structured user message containing context, history, and latest input.
-	body, err = buildLLMUserMessage()
+	body, err = buildLLMUserMessage(retryContext)
 	if err != nil {
 		stateMu.Unlock()
 		respond(reqID, errorResponse(err))
@@ -1082,6 +1128,7 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	var fileToolLogs []fileToolLog
 	var diffErrors []string // diff failures (LLM errors, not system errors)
+	pendingWrites := make(map[string]string) // buffered file writes (committed on success)
 	seenOutputPaths := make(map[string]bool)
 	duplicatePathDetected := false
 
@@ -1160,13 +1207,13 @@ func handleSend(reqID string, req map[string]any) {
 			case "write_file":
 				args, err := llm.ParseWriteFileArgs(event.ToolCall.Function.Arguments)
 				if err != nil {
-					log.Error("Failed to parse write_file args: %v", err)
+					log.Info("Failed to parse write_file args: %v", err)
 					return // Skip malformed tool calls
 				}
 				writeCalls = append(writeCalls, *args)
 				fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "write_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
 				if seenOutputPaths[args.Path] {
-					log.Error("Duplicate write_file for path in single response: %s", args.Path)
+					log.Info("Duplicate write_file for path in single response: %s", args.Path)
 					if !duplicatePathDetected {
 						setTerminalStreamError(&streamErr, "Duplicate write_file for path in single response: "+args.Path, cancel)
 						duplicatePathDetected = true
@@ -1178,15 +1225,9 @@ func handleSend(reqID string, req map[string]any) {
 				stateMu.Lock()
 				inContext := appState.HasContextFile(args.Path)
 				isNew := !inContext
-				if err := appState.WriteOutputFile(args.Path, args.Content); err != nil {
-					stateMu.Unlock()
-					log.Error("Failed to write file %s: %v", args.Path, err)
-					setTerminalStreamError(&streamErr, fmt.Sprintf("Failed to write file %s: %v", args.Path, err), cancel)
-					return
-				}
 				stateMu.Unlock()
-				// Don't call AssistantWriteFile here - we'll add file events as parts
-				// of the main assistant message (after thinking/text) for correct ordering
+				// Buffer write — committed after streaming completes if no diff errors
+				pendingWrites[args.Path] = args.Content
 				action := "Assistant modified"
 				if isNew {
 					action = "Assistant added"
@@ -1198,13 +1239,13 @@ func handleSend(reqID string, req map[string]any) {
 			case "modify_file":
 				args, err := llm.ParseModifyFileArgs(event.ToolCall.Function.Arguments)
 				if err != nil {
-					log.Error("Failed to parse modify_file args: %v", err)
+					log.Info("Failed to parse modify_file args: %v", err)
 					setTerminalStreamError(&streamErr, fmt.Sprintf("modify_file parse error: %v", err), cancel)
 					return
 				}
 				fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "modify_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
 				if seenOutputPaths[args.Path] {
-					log.Error("Duplicate file output for path in single response: %s", args.Path)
+					log.Info("Duplicate file output for path in single response: %s", args.Path)
 					if !duplicatePathDetected {
 						setTerminalStreamError(&streamErr, "Duplicate file output for path in single response: "+args.Path, cancel)
 						duplicatePathDetected = true
@@ -1213,13 +1254,13 @@ func handleSend(reqID string, req map[string]any) {
 				}
 				seenOutputPaths[args.Path] = true
 
-				// Resolve base content: previous output first, then context
+				// Resolve base content: pending writes first, then output, then context
 				stateMu.Lock()
-				base, baseSource := resolveFileBase(args.Path)
+				base, baseSource := resolveFileBase(args.Path, pendingWrites)
 				stateMu.Unlock()
 				if baseSource == "" {
 					msg := fmt.Sprintf("modify_file: %s not in context or output", args.Path)
-					log.Error(msg)
+					log.Info(msg)
 					setTerminalStreamError(&streamErr, msg, cancel)
 					return
 				}
@@ -1234,25 +1275,22 @@ func handleSend(reqID string, req map[string]any) {
 					}
 				}
 
-				result, err := diff.Apply(diff.SplitLines(base), diffChanges)
+				applyResult, err := diff.Apply(diff.SplitLines(base), diffChanges)
 				if err != nil {
 					detail := fmt.Sprintf("modify_file %s: %v", args.Path, err)
-					log.Error(detail)
+					log.Info(detail)
 					diffErrors = append(diffErrors, detail)
 					return
 				}
 
-				newContent := diff.JoinLines(result)
-				writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
-
-				stateMu.Lock()
-				if err := appState.WriteOutputFile(args.Path, newContent); err != nil {
-					stateMu.Unlock()
-					log.Error("Failed to write file %s: %v", args.Path, err)
-					setTerminalStreamError(&streamErr, fmt.Sprintf("Failed to write file %s: %v", args.Path, err), cancel)
-					return
+				if len(applyResult.DroppedNoOp) > 0 {
+					log.Info("modify_file %s: dropped %d no-op change(s): indices %v", args.Path, len(applyResult.DroppedNoOp), applyResult.DroppedNoOp)
 				}
-				stateMu.Unlock()
+
+				newContent := diff.JoinLines(applyResult.Lines)
+				writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
+				// Buffer write — committed after streaming completes if no diff errors
+				pendingWrites[args.Path] = newContent
 
 				log.Info("Assistant modified (diff): %s (%d bytes, base=%s)", args.Path, len(newContent), baseSource)
 				outputFiles = append(outputFiles, args.Path)
@@ -1294,8 +1332,14 @@ func handleSend(reqID string, req map[string]any) {
 		for i, ftl := range fileToolLogs {
 			header := fmt.Sprintf("@%s index=%d path=%s", ftl.Tool, i, ftl.Path)
 			assistantRaw.WriteString(header + "\n")
-			assistantRaw.WriteString(ftl.Args)
-			if !strings.HasSuffix(ftl.Args, "\n") {
+			// Pretty-print the tool call JSON for readability
+			var prettyArgs bytes.Buffer
+			if err := json.Indent(&prettyArgs, []byte(ftl.Args), "", "  "); err == nil {
+				assistantRaw.WriteString(prettyArgs.String())
+			} else {
+				assistantRaw.WriteString(ftl.Args)
+			}
+			if !strings.HasSuffix(assistantRaw.String(), "\n") {
 				assistantRaw.WriteString("\n")
 			}
 			assistantRaw.WriteString("\n")
@@ -1354,29 +1398,40 @@ func handleSend(reqID string, req map[string]any) {
 						Content: textContent.String(),
 					})
 				}
+				cancelOutputFiles := outputFiles
 				stateMu.Lock()
-				for _, wc := range writeCalls {
-					cf := appState.FindContextFile(wc.Path)
-					readOnly := false
-					external := false
-					if cf != nil {
-						readOnly = cf.ReadOnly
-						external = cf.External
+				// Only commit writes and add file events when no diff errors occurred
+				if len(diffErrors) == 0 {
+					for path, content := range pendingWrites {
+						if writeErr := appState.WriteOutputFile(path, content); writeErr != nil {
+							log.Error("Failed to commit file %s on cancel: %v", path, writeErr)
+						}
 					}
-					isNew := cf == nil
-					cancelParts = append(cancelParts, state.MessagePart{
-						Type:     "context_event",
-						Action:   "AssistantWriteFile",
-						Path:     wc.Path,
-						ReadOnly: &readOnly,
-						External: &external,
-						Version:  state.HashFileVersion(wc.Path, wc.Content),
-						Added:    isNew,
-					})
+					for _, wc := range writeCalls {
+						cf := appState.FindContextFile(wc.Path)
+						readOnly := false
+						external := false
+						if cf != nil {
+							readOnly = cf.ReadOnly
+							external = cf.External
+						}
+						isNew := cf == nil
+						cancelParts = append(cancelParts, state.MessagePart{
+							Type:     "context_event",
+							Action:   "AssistantWriteFile",
+							Path:     wc.Path,
+							ReadOnly: &readOnly,
+							External: &external,
+							Version:  state.HashFileVersion(wc.Path, wc.Content),
+							Added:    isNew,
+						})
+					}
+				} else {
+					cancelOutputFiles = nil
 				}
 				stateMu.Unlock()
 				stateMu.Lock()
-				if addErr := appState.AddAssistantMessage("", cancelParts, outputFiles, model, nil); addErr != nil {
+				if addErr := appState.AddAssistantMessage("", cancelParts, cancelOutputFiles, model, nil); addErr != nil {
 					log.Error("Failed to save partial assistant message: %v", addErr)
 				} else if reasoningConfig != nil {
 					msgs := appState.ActiveChat.Messages
@@ -1397,6 +1452,93 @@ func handleSend(reqID string, req map[string]any) {
 		respond(reqID, map[string]any{"type": "error", "message": msg})
 		return
 	}
+
+	streamDuration := time.Since(streamStart).Seconds()
+
+	// Handle diff errors: save text-only message, send diff_error, return.
+	// File writes are discarded (atomic: all or nothing per response).
+	if len(diffErrors) > 0 {
+		// Build text-only parts (no file events)
+		var diffErrParts []state.MessagePart
+		if thinkingContent.Len() > 0 {
+			diffErrParts = append(diffErrParts, state.MessagePart{
+				Type:    "thinking",
+				Content: thinkingContent.String(),
+			})
+		}
+		if textContent.Len() > 0 {
+			diffErrParts = append(diffErrParts, state.MessagePart{
+				Type:    "text",
+				Content: textContent.String(),
+			})
+		}
+
+		// Convert usage for storage
+		var msgUsage *state.MessageUsage
+		if lastUsage != nil {
+			msgUsage = &state.MessageUsage{
+				PromptTokens:     lastUsage.PromptTokens,
+				CompletionTokens: lastUsage.CompletionTokens,
+				CachedTokens:     lastUsage.CachedTokens,
+				TotalTokens:      lastUsage.TotalTokens,
+				Cost:             lastUsage.Cost,
+				Duration:         streamDuration,
+			}
+		}
+
+		// Save assistant message without file events and with nil output files
+		stateMu.Lock()
+		if addErr := appState.AddAssistantMessage("", diffErrParts, nil, model, msgUsage); addErr != nil {
+			log.Error("Failed to save assistant message on diff error: %v", addErr)
+		} else if reasoningConfig != nil {
+			msgs := appState.ActiveChat.Messages
+			msgs[len(msgs)-1].ReasoningEffort = reasoningConfig.Effort
+			if saveErr := appState.SaveActiveChat(); saveErr != nil {
+				log.Error("Failed to save reasoning effort on diff error: %v", saveErr)
+			}
+		}
+		stateMu.Unlock()
+
+		// Build tool calls list for the response.
+		// Use json.RawMessage for args so nested JSON embeds cleanly
+		// (not double-escaped as a string).
+		var toolCallEntries []map[string]any
+		for _, ftl := range fileToolLogs {
+			toolCallEntries = append(toolCallEntries, map[string]any{
+				"tool": ftl.Tool,
+				"path": ftl.Path,
+				"args": json.RawMessage(ftl.Args),
+			})
+		}
+
+		// Send diff_error response
+		diffErrResp := map[string]any{
+			"type":                "diff_error",
+			"errors":     diffErrors,
+			"tool_calls": toolCallEntries,
+		}
+		if lastUsage != nil {
+			diffErrResp["usage"] = map[string]any{
+				"prompt_tokens":     lastUsage.PromptTokens,
+				"completion_tokens": lastUsage.CompletionTokens,
+				"cached_tokens":     lastUsage.CachedTokens,
+				"total_tokens":      lastUsage.TotalTokens,
+				"cost":              lastUsage.Cost,
+			}
+		}
+		diffErrResp["duration"] = streamDuration
+		respond(reqID, diffErrResp)
+		return
+	}
+
+	// Success path: commit all pending writes
+	stateMu.Lock()
+	for path, content := range pendingWrites {
+		if writeErr := appState.WriteOutputFile(path, content); writeErr != nil {
+			log.Error("Failed to commit file %s: %v", path, writeErr)
+		}
+	}
+	stateMu.Unlock()
 
 	// Build final parts: thinking first, then text content, then file events at the end
 	if textContent.Len() > 0 {
@@ -1436,7 +1578,6 @@ func handleSend(reqID string, req map[string]any) {
 	stateMu.Unlock()
 
 	// Convert usage for storage
-	streamDuration := time.Since(streamStart).Seconds()
 	var msgUsage *state.MessageUsage
 	if lastUsage != nil {
 		msgUsage = &state.MessageUsage{
@@ -1466,6 +1607,25 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	stateMu.Unlock()
 
+	// Auto-generate title after first message exchange
+	stateMu.Lock()
+	if appState.ActiveChat != nil {
+		userMsgCount := 0
+		firstUserContent := ""
+		for _, msg := range appState.ActiveChat.Messages {
+			if msg.Role == "user" {
+				userMsgCount++
+				if userMsgCount == 1 {
+					firstUserContent = msg.Content
+				}
+			}
+		}
+		if userMsgCount == 1 && firstUserContent != "" {
+			autoTitleGenerateAsync(appState.ActiveChat.ID, firstUserContent, appState.ActiveChat.ContextFiles)
+		}
+	}
+	stateMu.Unlock()
+
 	// Send done with usage info
 	doneResp := map[string]any{"type": "done", "output_files": outputFiles}
 	if lastUsage != nil {
@@ -1479,17 +1639,55 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	doneResp["duration"] = streamDuration
 	respond(reqID, doneResp)
+}
 
-	// Diff errors are LLM mistakes, not system failures. Add a system message
-	// after the normal done response so the chat shows what happened without
-	// triggering error UI.
-	if len(diffErrors) > 0 {
+// autoTitleGenerateAsync generates a title asynchronously and sends a title_updated event.
+// Called from the send handler after the first message exchange completes.
+// contextFiles is the list of context files attached to the chat (for title context).
+// Caller must NOT hold stateMu.
+func autoTitleGenerateAsync(chatID, content string, contextFiles []state.ContextFile) {
+	var filePaths []string
+	for _, cf := range contextFiles {
+		filePaths = append(filePaths, cf.Path)
+	}
+	go func() {
+		fullContent := content
+		if len(filePaths) > 0 {
+			fullContent = fmt.Sprintf("User message: %s\n\nContext files attached: %s", content, strings.Join(filePaths, ", "))
+		}
+
+		messages := []llm.Message{
+			{Role: "user", Content: fullContent},
+		}
+
+		title, err := llmClient.ChatSimple(appConfig.TitleModel, titlePrompt, messages)
+		if err != nil {
+			log.Error("Failed to generate title: %v", err)
+			return
+		}
+
+		title = strings.TrimSpace(title)
+		title = strings.Trim(title, "\"'")
+		if len(title) > 80 {
+			title = title[:77] + "..."
+		}
+
 		stateMu.Lock()
-		if addErr := appState.AddSystemMessage("BB-7 failed to apply file changes."); addErr != nil {
-			log.Error("Failed to record diff error system message: %v", addErr)
+		if err := appState.SetChatName(chatID, title); err != nil {
+			stateMu.Unlock()
+			log.Error("Failed to set chat name: %v", err)
+			return
 		}
 		stateMu.Unlock()
-	}
+
+		log.Info("Generated title for chat %s: %s", chatID, title)
+
+		respond("", map[string]any{
+			"type":    "title_updated",
+			"chat_id": chatID,
+			"title":   title,
+		})
+	}()
 }
 
 // handleGenerateTitle generates a title for a chat based on the first message.
@@ -1507,68 +1705,22 @@ func handleGenerateTitle(reqID string, req map[string]any) {
 		return
 	}
 
-	// Load config if needed
 	if err := ensureConfig(); err != nil {
 		respond(reqID, errorResponse(err))
 		return
 	}
 
-	// Get context files if this is the active chat
-	var contextFiles []string
-	if appState.ActiveChat != nil && appState.ActiveChat.ID == chatID {
-		for _, cf := range appState.ActiveChat.ContextFiles {
-			contextFiles = append(contextFiles, cf.Path)
-		}
-	}
-
 	// Acknowledge immediately - title generation happens async
 	respond(reqID, map[string]any{"type": "ok"})
 
-	// Generate title asynchronously
-	go func() {
-		// Build message with context info if files were attached
-		fullContent := content
-		if len(contextFiles) > 0 {
-			fullContent = fmt.Sprintf("User message: %s\n\nContext files attached: %s", content, strings.Join(contextFiles, ", "))
-		}
+	stateMu.Lock()
+	var contextFiles []state.ContextFile
+	if appState.ActiveChat != nil && appState.ActiveChat.ID == chatID {
+		contextFiles = appState.ActiveChat.ContextFiles
+	}
+	stateMu.Unlock()
 
-		messages := []llm.Message{
-			{Role: "user", Content: fullContent},
-		}
-
-		title, err := llmClient.ChatSimple(appConfig.TitleModel, titlePrompt, messages)
-		if err != nil {
-			log.Error("Failed to generate title: %v", err)
-			return
-		}
-
-		// Clean up title (trim whitespace, remove quotes)
-		title = strings.TrimSpace(title)
-		title = strings.Trim(title, "\"'")
-
-		// Truncate if too long (allow longer titles - pane border has space)
-		if len(title) > 80 {
-			title = title[:77] + "..."
-		}
-
-		// Update chat name
-		stateMu.Lock()
-		if err := appState.SetChatName(chatID, title); err != nil {
-			stateMu.Unlock()
-			log.Error("Failed to set chat name: %v", err)
-			return
-		}
-		stateMu.Unlock()
-
-		log.Info("Generated title for chat %s: %s", chatID, title)
-
-		// Send title_updated event
-		respond("", map[string]any{
-			"type":    "title_updated",
-			"chat_id": chatID,
-			"title":   title,
-		})
-	}()
+	autoTitleGenerateAsync(chatID, content, contextFiles)
 }
 
 type fileBlock struct {
@@ -1814,10 +1966,55 @@ func summarizeFiles(readonly, writable []fileBlock) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// retryContextData holds parsed retry context from the frontend.
+// This is injected into the LLM message but never saved to chat history.
+type retryContextData struct {
+	Errors    []string
+	ToolCalls []map[string]any
+}
+
+func parseRetryContext(rc map[string]any) *retryContextData {
+	data := &retryContextData{}
+	if errs, ok := rc["errors"].([]any); ok {
+		for _, e := range errs {
+			if s, ok := e.(string); ok {
+				data.Errors = append(data.Errors, s)
+			}
+		}
+	}
+	if tcs, ok := rc["tool_calls"].([]any); ok {
+		for _, tc := range tcs {
+			if m, ok := tc.(map[string]any); ok {
+				data.ToolCalls = append(data.ToolCalls, m)
+			}
+		}
+	}
+	return data
+}
+
+func formatRetryContext(rc *retryContextData) string {
+	var b strings.Builder
+	b.WriteString("Your previous modify_file calls failed. Errors:\n")
+	for _, e := range rc.Errors {
+		b.WriteString("- " + e + "\n")
+	}
+	b.WriteString("\nYour previous tool calls:\n")
+	for _, tc := range rc.ToolCalls {
+		data, err := json.Marshal(tc)
+		if err != nil {
+			continue
+		}
+		b.WriteString(string(data) + "\n")
+	}
+	b.WriteString("\nFix the anchors and retry the file changes.")
+	return b.String()
+}
+
 // buildLLMUserMessage constructs a single structured user message that includes
 // current context files, structured history, the latest user message, and
 // writable files. This avoids hidden assistant messages and keeps ordering stable.
-func buildLLMUserMessage() (string, error) {
+// If retryContext is non-nil, a @retry_context block is appended after @latest.
+func buildLLMUserMessage(retryContext *retryContextData) (string, error) {
 	chat := appState.ActiveChat
 	if chat == nil {
 		return "", state.ErrNoActiveChat
@@ -1894,6 +2091,10 @@ func buildLLMUserMessage() (string, error) {
 			latestBody += latestContent
 		}
 		writeRawBlock(&b, "@latest", latestBody, "@end latest")
+	}
+
+	if retryContext != nil {
+		writeRawBlock(&b, "@retry_context", formatRetryContext(retryContext), "@end retry_context")
 	}
 
 	if len(writable) > 0 {
