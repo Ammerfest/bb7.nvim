@@ -5,6 +5,7 @@ local client = require('bb7.client')
 local log = require('bb7.log')
 local models = require('bb7.models')
 local panes_input = require('bb7.panes.input')
+local shared = require('bb7.ui.shared')
 local status = require('bb7.status')
 
 local state = {
@@ -165,6 +166,16 @@ function M.close()
 
   state.is_open = false
 
+  -- Save cursor position to session state before cleanup
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    local cursor = vim.api.nvim_win_get_cursor(state.win)
+    local topline = vim.fn.getwininfo(state.win)[1].topline
+    shared.session_state.pane_views[5] = {
+      cursor = cursor,
+      topline = topline,
+    }
+  end
+
   -- Flush draft
   panes_input.flush_draft()
 
@@ -314,8 +325,23 @@ function M.open()
           end,
         })
 
-        -- Enter insert mode
-        vim.cmd('startinsert')
+        -- Cursor + mode: restore position in normal mode if draft has content,
+        -- otherwise enter insert mode for fresh input
+        local draft = chat.draft or ''
+        if draft ~= '' then
+          local view = shared.session_state.pane_views[5]
+          if view and view.cursor then
+            local line_count = vim.api.nvim_buf_line_count(buf)
+            local row = math.min(view.cursor[1], line_count)
+            local col = view.cursor[2]
+            local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ''
+            col = math.min(col, #line)
+            pcall(vim.api.nvim_win_set_cursor, win, { row, col })
+          end
+          vim.cmd('stopinsert')
+        else
+          vim.cmd('startinsert')
+        end
       end)
     end)
   end

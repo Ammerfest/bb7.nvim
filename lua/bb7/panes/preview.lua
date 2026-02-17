@@ -114,6 +114,14 @@ end
 function M.set_chat(chat)
   state.chat = chat
   state.pending_user_message = nil
+  -- Self-heal: if preview thinks it's streaming but client has no active stream,
+  -- the done handler must have errored. Force-clear streaming state.
+  if state.streaming and not require('bb7.client').has_active_stream() then
+    state.streaming = false
+    persistent.is_streaming = false
+    persistent.stream_start_time = nil
+    stream.stop_spinner()
+  end
   if not state.streaming then
     state.stream_lines = {}
     state.stream_reasoning_lines = {}

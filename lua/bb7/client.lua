@@ -82,7 +82,10 @@ local function handle_output(line)
 
   if msg_type == 'done' then
     if state.stream_handlers and state.stream_request_id == resp_id and state.stream_handlers.on_done then
-      state.stream_handlers.on_done(data.output_files or {}, data.usage)
+      local ok, err = pcall(state.stream_handlers.on_done, data.output_files or {}, data.usage)
+      if not ok then
+        log.error('Error in stream done handler: ' .. tostring(err))
+      end
     end
     state.stream_handlers = nil
     state.stream_request_id = nil
@@ -92,7 +95,10 @@ local function handle_output(line)
 
   if msg_type == 'diff_error' then
     if state.stream_handlers and state.stream_request_id == resp_id and state.stream_handlers.on_diff_error then
-      state.stream_handlers.on_diff_error(data)
+      local ok, err = pcall(state.stream_handlers.on_diff_error, data)
+      if not ok then
+        log.error('Error in stream diff_error handler: ' .. tostring(err))
+      end
     end
     state.stream_handlers = nil
     state.stream_request_id = nil
@@ -111,7 +117,10 @@ local function handle_output(line)
   -- Handle errors
   if msg_type == 'error' then
     if state.stream_handlers and state.stream_request_id == resp_id and state.stream_handlers.on_error then
-      state.stream_handlers.on_error(data.message)
+      local ok, err = pcall(state.stream_handlers.on_error, data.message)
+      if not ok then
+        log.error('Error in stream error handler: ' .. tostring(err))
+      end
       state.stream_handlers = nil
       state.stream_request_id = nil
       state.stream_buffer = nil
@@ -359,7 +368,20 @@ function M.cancel_active_stream()
   if not state.stream_request_id then
     return
   end
-  M.send({ action = 'cancel', target_request_id = state.stream_request_id })
+  local stream_req_id = state.stream_request_id
+  M.send({ action = 'cancel', target_request_id = stream_req_id }, function(_, err)
+    if err then
+      -- Backend says no active request — stream already completed but frontend
+      -- missed the done event (handler error). Force-clear client stream state
+      -- so the UI can recover.
+      if state.stream_request_id == stream_req_id then
+        log.warn('Stream already completed, clearing stale client state')
+        state.stream_handlers = nil
+        state.stream_request_id = nil
+        state.stream_buffer = nil
+      end
+    end
+  end)
 end
 
 -- Get the backend version
