@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,21 +18,27 @@ import (
 //go:embed modify_file_prompt.txt
 var modifyFilePrompt string
 
+//go:embed edit_file_sr_prompt.txt
+var editFileSRPrompt string
+
+//go:embed edit_file_sr_multi_prompt.txt
+var editFileSRMultiPrompt string
+
 //go:embed testdata/*
 var testdataFS embed.FS
 
 type testCase struct {
-	name     string // display name
-	source   string // filename in testdata/
-	expected string // filename in testdata/
-	prompt   string // task description for the model
+	name     string   // display name
+	sources  []string // filenames in testdata/
+	expected []string // expected filenames in testdata/ (parallel with sources)
+	prompt   string   // task description for the model
 }
 
 var tests = []testCase{
 	{
 		name:     "Combined common task",
-		source:   "01_combined.go",
-		expected: "01_combined_expected.go",
+		sources:  []string{"01_combined.go"},
+		expected: []string{"01_combined_expected.go"},
 		prompt: `Make the following changes to ` + "`01_combined.go`" + `:
 
 1. Add ` + "`\"strings\"`" + ` to the import block, between ` + "`\"net/http\"`" + ` and ` + "`\"time\"`" + `.
@@ -97,8 +105,8 @@ var tests = []testCase{
 	},
 	{
 		name:     "Reorder functions",
-		source:   "02_reorder.go",
-		expected: "02_reorder_expected.go",
+		sources:  []string{"02_reorder.go"},
+		expected: []string{"02_reorder_expected.go"},
 		prompt: `Reorder the functions in ` + "`02_reorder.go`" + `. Currently the functions appear in this order:
 1. FormatOutput
 2. ProcessBatch
@@ -117,8 +125,8 @@ Do not change any function's content — only move ` + "`ProcessBatch`" + `.`,
 	},
 	{
 		name:     "Multiple scattered edits",
-		source:   "03_scattered.go",
-		expected: "03_scattered_expected.go",
+		sources:  []string{"03_scattered.go"},
+		expected: []string{"03_scattered_expected.go"},
 		prompt: `Make exactly these 4 changes to ` + "`03_scattered.go`" + `:
 
 1. Change the value of the ` + "`MaxRetries`" + ` constant from ` + "`3`" + ` to ` + "`5`" + `.
@@ -143,8 +151,8 @@ to:
 	},
 	{
 		name:     "Edit near duplicates",
-		source:   "04_duplicates.go",
-		expected: "04_duplicates_expected.go",
+		sources:  []string{"04_duplicates.go"},
+		expected: []string{"04_duplicates_expected.go"},
 		prompt: `In ` + "`04_duplicates.go`" + `, add an authorization check to the ` + "`HandleUpdate`" + ` method only. Do NOT modify HandleCreate, HandleRead, HandleDelete, or any other function.
 
 Insert the following lines at the beginning of ` + "`HandleUpdate`" + `'s body, right after the method check (after the ` + "`if r.Method != http.MethodPut`" + ` block's closing brace and before the ` + "`id := r.URL.Query().Get(\"id\")`" + ` line):
@@ -161,8 +169,8 @@ This should be inserted between the method check and the id extraction, adding a
 	},
 	{
 		name:     "Deeply nested code",
-		source:   "05_nested.go",
-		expected: "05_nested_expected.go",
+		sources:  []string{"05_nested.go"},
+		expected: []string{"05_nested_expected.go"},
 		prompt: `In ` + "`05_nested.go`" + `, inside the ` + "`processItem`" + ` method, make changes in the ` + "`case \"compute\":`" + ` branch only:
 
 1. In the ` + "`if item.Status == StatusPending`" + ` block within the ` + "`case \"compute\":`" + ` branch, change the timeout from 30 to 60 seconds:
@@ -181,8 +189,8 @@ Do NOT change the timeout or log lines in any other branch (not in the StatusAct
 	},
 	{
 		name:     "Large region replacement",
-		source:   "06_large_region.go",
-		expected: "06_large_region_expected.go",
+		sources:  []string{"06_large_region.go"},
+		expected: []string{"06_large_region_expected.go"},
 		prompt: `In ` + "`06_large_region.go`" + `, make two changes:
 
 1. Add ` + "`\"text/template\"`" + ` to the import block, between ` + "`\"strings\"`" + ` and ` + "`\"time\"`" + `.
@@ -223,23 +231,89 @@ func GenerateReport(data *ReportData) string {
 }
 ` + "```",
 	},
+	{
+		name:     "Multi-file coordinated edit",
+		sources:  []string{"07_service.go", "07_service_test.go"},
+		expected: []string{"07_service_expected.go", "07_service_test_expected.go"},
+		prompt: `Make the following coordinated changes across both files to add a ` + "`priority`" + ` parameter to ` + "`CreateOrder`" + `.
+
+In ` + "`07_service.go`" + `:
+
+1. Add a ` + "`Priority string`" + ` field to the ` + "`Order`" + ` struct, between ` + "`Total`" + ` and ` + "`Status`" + `.
+
+2. Change the ` + "`CreateOrder`" + ` comment to: ` + "`// CreateOrder creates a new order with the given items and priority.`" + `
+
+3. Add a ` + "`priority string`" + ` parameter to ` + "`CreateOrder`" + `, after ` + "`total float64`" + `.
+
+4. Add this validation after the ` + "`total <= 0`" + ` check:
+` + "```go" + `
+	if priority != "normal" && priority != "rush" {
+		return nil, fmt.Errorf("priority must be \"normal\" or \"rush\"")
+	}
+` + "```" + `
+
+5. Add ` + "`Priority: priority,`" + ` to the order literal, between ` + "`Total`" + ` and ` + "`Status`" + `.
+
+6. Change the log message to:
+` + "```go" + `
+	log.Printf("created order %s for %s: %s (total: $%.2f, priority: %s)",
+		order.ID, order.Customer, strings.Join(order.Items, ", "), order.Total, order.Priority)
+` + "```" + `
+
+In ` + "`07_service_test.go`" + `:
+
+7. Add ` + "`\"normal\"`" + ` as the last argument to every ` + "`CreateOrder`" + ` call. There are 7 calls total across all test functions. Change each one, for example:
+   - ` + "`svc.CreateOrder(\"Alice\", []string{\"Widget\", \"Gadget\"}, 29.99)`" + ` becomes ` + "`svc.CreateOrder(\"Alice\", []string{\"Widget\", \"Gadget\"}, 29.99, \"normal\")`" + `
+
+Do NOT add new test functions. Only modify existing ` + "`CreateOrder`" + ` calls.`,
+	},
 }
 
 type testResult struct {
-	name    string
-	passed  bool
-	elapsed time.Duration
-	cost    float64
-	err     string // error details for failures
+	name      string
+	passed    bool
+	elapsed   time.Duration
+	cost      float64
+	err       string       // error details for failures
+	toolCalls []*llm.ToolCall // raw tool calls for logging
+}
+
+// logEntry is the JSON structure written to log files.
+type logEntry struct {
+	Model     string    `json:"model"`
+	Mode      string    `json:"mode"`
+	Test      string    `json:"test"`
+	Passed    bool      `json:"passed"`
+	Error     string    `json:"error,omitempty"`
+	Elapsed   float64   `json:"elapsed_seconds"`
+	Cost      float64   `json:"cost"`
+	ToolCalls []json.RawMessage `json:"tool_calls"`
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: go run ./cmd/bench <model-id>\n")
+		fmt.Fprintf(os.Stderr, "usage: go run ./cmd/bench <model-id> [--mode=sr|anchored] [--test=N]\n")
 		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4\n")
+		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4 --mode=sr\n")
+		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4 --mode=sr --test=2\n")
 		os.Exit(1)
 	}
 	model := os.Args[1]
+
+	mode := "anchored"
+	testFilter := 0 // 0 = run all
+	for _, arg := range os.Args[2:] {
+		if strings.HasPrefix(arg, "--mode=") {
+			mode = strings.TrimPrefix(arg, "--mode=")
+		}
+		if strings.HasPrefix(arg, "--test=") {
+			fmt.Sscanf(strings.TrimPrefix(arg, "--test="), "%d", &testFilter)
+		}
+	}
+	if mode != "anchored" && mode != "sr" && mode != "sr_multi" {
+		fmt.Fprintf(os.Stderr, "invalid mode: %s (use 'anchored', 'sr', or 'sr_multi')\n", mode)
+		os.Exit(1)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -249,48 +323,121 @@ func main() {
 
 	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, *cfg.AllowTraining, *cfg.AllowDataRetention)
 
+	// Create log directory
+	modelSlug := strings.ReplaceAll(model, "/", "_")
+	ts := time.Now().Format("20060102_150405")
+	logDir := filepath.Join("cmd", "bench", "logs", fmt.Sprintf("%s_%s_%s", ts, modelSlug, mode))
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create log dir: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Header
-	fmt.Printf("modify_file benchmark — model: %s\n", model)
+	fmt.Printf("edit_file benchmark — model: %s, mode: %s\n", model, mode)
+	if testFilter > 0 {
+		fmt.Printf("  (running test %d only)\n", testFilter)
+	}
+	fmt.Printf("  logs: %s/\n", logDir)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	results := make([]testResult, len(tests))
 	passed := 0
 	totalCost := 0.0
+	total := 0
 
 	for i, tc := range tests {
-		results[i] = runTest(client, model, tc, i, len(tests))
-		if results[i].passed {
+		if testFilter > 0 && i+1 != testFilter {
+			continue
+		}
+		total++
+		result := runTest(client, model, mode, tc, i, len(tests))
+		if result.passed {
 			passed++
 		}
-		totalCost += results[i].cost
+		totalCost += result.cost
+
+		// Write log file
+		writeLog(logDir, model, mode, i+1, tc, result)
 	}
 
 	// Summary
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("Result: %d/%d passed | Cost: $%.3f\n", passed, len(tests), totalCost)
+	fmt.Printf("Result: %d/%d passed | Cost: $%.3f\n", passed, total, totalCost)
 }
 
-func runTest(client *llm.Client, model string, tc testCase, index, total int) testResult {
+func writeLog(logDir, model, mode string, testNum int, tc testCase, result testResult) {
+	entry := logEntry{
+		Model:   model,
+		Mode:    mode,
+		Test:    fmt.Sprintf("%02d_%s", testNum, tc.name),
+		Passed:  result.passed,
+		Error:   result.err,
+		Elapsed: result.elapsed.Seconds(),
+		Cost:    result.cost,
+	}
+
+	for _, tc := range result.toolCalls {
+		entry.ToolCalls = append(entry.ToolCalls, json.RawMessage(tc.Function.Arguments))
+	}
+
+	data, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to marshal log entry: %v\n", err)
+		return
+	}
+
+	logPath := filepath.Join(logDir, fmt.Sprintf("%02d.json", testNum))
+	if err := os.WriteFile(logPath, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to write log: %v\n", err)
+	}
+}
+
+func runTest(client *llm.Client, model, mode string, tc testCase, index, total int) testResult {
 	result := testResult{name: tc.name}
 
-	// Load source and expected
-	source, err := testdataFS.ReadFile("testdata/" + tc.source)
-	if err != nil {
-		result.err = fmt.Sprintf("read source: %v", err)
-		printResult(index, total, result)
-		return result
-	}
-	expected, err := testdataFS.ReadFile("testdata/" + tc.expected)
-	if err != nil {
-		result.err = fmt.Sprintf("read expected: %v", err)
-		printResult(index, total, result)
-		return result
+	// Load source and expected files
+	files := make(map[string]string)
+	expectedFiles := make(map[string]string)
+	for i, src := range tc.sources {
+		data, err := testdataFS.ReadFile("testdata/" + src)
+		if err != nil {
+			result.err = fmt.Sprintf("read source %s: %v", src, err)
+			printResult(index, total, result)
+			return result
+		}
+		files[src] = string(data)
+
+		exp, err := testdataFS.ReadFile("testdata/" + tc.expected[i])
+		if err != nil {
+			result.err = fmt.Sprintf("read expected %s: %v", tc.expected[i], err)
+			printResult(index, total, result)
+			return result
+		}
+		expectedFiles[src] = string(exp)
 	}
 
-	// Build user message with file content and task
-	userContent := fmt.Sprintf("Here is the file `%s`:\n\n```go\n%s```\n\n%s", tc.source, string(source), tc.prompt)
+	// Build user message with all file contents and task
+	var userContent string
+	for _, src := range tc.sources {
+		userContent += fmt.Sprintf("Here is the file `%s`:\n\n```go\n%s```\n\n", src, files[src])
+	}
+	userContent += tc.prompt
 	messages := []llm.Message{
 		{Role: "user", Content: userContent},
+	}
+
+	// Select prompt and diff mode based on mode flag
+	var systemPrompt string
+	var diffMode string
+	switch mode {
+	case "sr":
+		systemPrompt = editFileSRPrompt
+		diffMode = "search_replace"
+	case "sr_multi":
+		systemPrompt = editFileSRMultiPrompt
+		diffMode = "search_replace_multi"
+	default:
+		systemPrompt = modifyFilePrompt
+		diffMode = "anchored"
 	}
 
 	// Call model
@@ -301,7 +448,7 @@ func runTest(client *llm.Client, model string, tc testCase, index, total int) te
 	var usage *llm.Usage
 
 	start := time.Now()
-	err = client.ChatStream(ctx, model, modifyFilePrompt, messages, nil, true, func(event llm.StreamEvent) {
+	err := client.ChatStream(ctx, model, systemPrompt, messages, nil, diffMode, func(event llm.StreamEvent) {
 		switch event.Type {
 		case "tool_call":
 			toolCalls = append(toolCalls, event.ToolCall)
@@ -310,6 +457,7 @@ func runTest(client *llm.Client, model string, tc testCase, index, total int) te
 		}
 	})
 	result.elapsed = time.Since(start)
+	result.toolCalls = toolCalls
 
 	if usage != nil {
 		result.cost = usage.Cost
@@ -321,16 +469,127 @@ func runTest(client *llm.Client, model string, tc testCase, index, total int) te
 		return result
 	}
 
-	// Find modify_file tool call
-	var modifyCall *llm.ToolCall
+	switch mode {
+	case "sr":
+		result = applySRToolCalls(result, toolCalls, files, expectedFiles)
+	case "sr_multi":
+		result = applySRMultiToolCalls(result, toolCalls, files, expectedFiles)
+	default:
+		result = applyAnchoredToolCall(result, toolCalls, files, expectedFiles)
+	}
+
+	printResult(index, total, result)
+	return result
+}
+
+// applySRToolCalls processes search/replace edit_file tool calls sequentially.
+func applySRToolCalls(result testResult, toolCalls []*llm.ToolCall, files, expected map[string]string) testResult {
+	// Collect all edit_file calls
+	var editCalls []*llm.ToolCall
 	for _, tc := range toolCalls {
-		if tc.Function.Name == "modify_file" {
-			modifyCall = tc
+		if tc.Function.Name == "edit_file" {
+			editCalls = append(editCalls, tc)
+		}
+	}
+
+	if len(editCalls) == 0 {
+		names := make([]string, len(toolCalls))
+		for i, tc := range toolCalls {
+			names[i] = tc.Function.Name
+		}
+		if len(names) == 0 {
+			result.err = "no tool calls returned"
+		} else {
+			result.err = fmt.Sprintf("no edit_file call (got: %s)", strings.Join(names, ", "))
+		}
+		return result
+	}
+
+	// Apply each edit_file call sequentially
+	for i, ec := range editCalls {
+		args, err := llm.ParseEditFileArgs(ec.Function.Arguments)
+		if err != nil {
+			result.err = fmt.Sprintf("parse edit_file[%d]: %v", i, err)
+			return result
+		}
+
+		content, ok := files[args.Path]
+		if !ok {
+			result.err = fmt.Sprintf("edit_file[%d]: unknown file %q", i, args.Path)
+			return result
+		}
+
+		newContent, err := diff.Replace(content, args.OldString, args.NewString, args.ReplaceAll)
+		if err != nil {
+			result.err = fmt.Sprintf("edit_file[%d] (%s): %v", i, args.Path, err)
+			return result
+		}
+		files[args.Path] = newContent
+	}
+
+	return compareFiles(result, files, expected)
+}
+
+// applySRMultiToolCalls processes a batched search/replace edit_file tool call.
+func applySRMultiToolCalls(result testResult, toolCalls []*llm.ToolCall, files, expected map[string]string) testResult {
+	// Find edit_file tool call
+	var editCall *llm.ToolCall
+	for _, tc := range toolCalls {
+		if tc.Function.Name == "edit_file" {
+			editCall = tc
 			break
 		}
 	}
 
-	if modifyCall == nil {
+	if editCall == nil {
+		names := make([]string, len(toolCalls))
+		for i, tc := range toolCalls {
+			names[i] = tc.Function.Name
+		}
+		if len(names) == 0 {
+			result.err = "no tool calls returned"
+		} else {
+			result.err = fmt.Sprintf("no edit_file call (got: %s)", strings.Join(names, ", "))
+		}
+		return result
+	}
+
+	args, err := llm.ParseEditFileMultiArgs(editCall.Function.Arguments)
+	if err != nil {
+		result.err = fmt.Sprintf("parse edit_file: %v", err)
+		return result
+	}
+
+	// Apply each edit sequentially
+	for i, edit := range args.Edits {
+		content, ok := files[edit.Path]
+		if !ok {
+			result.err = fmt.Sprintf("edit %d: unknown file %q", i, edit.Path)
+			return result
+		}
+
+		newContent, err := diff.Replace(content, edit.OldString, edit.NewString, edit.ReplaceAll)
+		if err != nil {
+			result.err = fmt.Sprintf("edit %d (%s): %v", i, edit.Path, err)
+			return result
+		}
+		files[edit.Path] = newContent
+	}
+
+	return compareFiles(result, files, expected)
+}
+
+// applyAnchoredToolCall processes anchored modify_file/edit_file tool calls.
+func applyAnchoredToolCall(result testResult, toolCalls []*llm.ToolCall, files, expected map[string]string) testResult {
+	// Find modify_file or edit_file tool calls
+	var modifyCalls []*llm.ToolCall
+	for _, tc := range toolCalls {
+		if tc.Function.Name == "modify_file" || tc.Function.Name == "edit_file" {
+			modifyCalls = append(modifyCalls, tc)
+		}
+	}
+
+	if len(modifyCalls) == 0 {
 		names := make([]string, len(toolCalls))
 		for i, tc := range toolCalls {
 			names[i] = tc.Function.Name
@@ -340,48 +599,59 @@ func runTest(client *llm.Client, model string, tc testCase, index, total int) te
 		} else {
 			result.err = fmt.Sprintf("no modify_file call (got: %s)", strings.Join(names, ", "))
 		}
-		printResult(index, total, result)
 		return result
 	}
 
-	// Parse modify_file args
-	args, err := llm.ParseModifyFileArgs(modifyCall.Function.Arguments)
-	if err != nil {
-		result.err = fmt.Sprintf("parse args: %v", err)
-		printResult(index, total, result)
-		return result
+	for ci, modifyCall := range modifyCalls {
+		args, err := llm.ParseModifyFileArgs(modifyCall.Function.Arguments)
+		if err != nil {
+			result.err = fmt.Sprintf("parse args[%d]: %v", ci, err)
+			return result
+		}
+
+		content, ok := files[args.Path]
+		if !ok {
+			result.err = fmt.Sprintf("modify_file[%d]: unknown file %q", ci, args.Path)
+			return result
+		}
+
+		changes := make([]diff.Change, len(args.Changes))
+		for j, c := range args.Changes {
+			changes[j] = diff.Change{
+				Start:   c.Start,
+				End:     c.End,
+				Content: c.Content,
+			}
+		}
+
+		sourceLines := diff.SplitLines(content)
+		applyResult, err := diff.Apply(sourceLines, changes)
+		if err != nil {
+			result.err = fmt.Sprintf("diff apply[%d] (%s): %v", ci, args.Path, err)
+			return result
+		}
+		files[args.Path] = diff.JoinLines(applyResult.Lines)
 	}
 
-	// Convert to diff.Change
-	changes := make([]diff.Change, len(args.Changes))
-	for j, c := range args.Changes {
-		changes[j] = diff.Change{
-			Start:   c.Start,
-			End:     c.End,
-			Content: c.Content,
+	return compareFiles(result, files, expected)
+}
+
+// compareFiles checks all files against expected content.
+func compareFiles(result testResult, files, expected map[string]string) testResult {
+	for path, want := range expected {
+		got, ok := files[path]
+		if !ok {
+			result.err = fmt.Sprintf("file %s: not produced", path)
+			return result
+		}
+		gotNorm := normalizeContent(got)
+		wantNorm := normalizeContent(want)
+		if gotNorm != wantNorm {
+			result.err = fmt.Sprintf("%s: %s", path, describeMismatch(gotNorm, wantNorm))
+			return result
 		}
 	}
-
-	// Apply diff
-	sourceLines := diff.SplitLines(string(source))
-	applyResult, err := diff.Apply(sourceLines, changes)
-	if err != nil {
-		result.err = fmt.Sprintf("diff apply: %v", err)
-		printResult(index, total, result)
-		return result
-	}
-
-	// Compare output to expected
-	got := normalizeContent(diff.JoinLines(applyResult.Lines))
-	want := normalizeContent(string(expected))
-
-	if got == want {
-		result.passed = true
-	} else {
-		result.err = describeMismatch(got, want)
-	}
-
-	printResult(index, total, result)
+	result.passed = true
 	return result
 }
 

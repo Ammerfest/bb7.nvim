@@ -54,15 +54,15 @@ func TestLoadFrom(t *testing.T) {
 		if cfg.DefaultModel != "anthropic/claude-sonnet-4" {
 			t.Errorf("DefaultModel = %q, want default", cfg.DefaultModel)
 		}
-		if cfg.DiffMode == nil || !*cfg.DiffMode {
-			t.Error("DiffMode should default to true")
+		if cfg.DiffMode == nil || *cfg.DiffMode != "search_replace_multi" {
+			t.Errorf("DiffMode should default to \"search_replace_multi\", got %v", cfg.DiffMode)
 		}
 	})
 
-	t.Run("diff_mode false", func(t *testing.T) {
+	t.Run("diff_mode anchored", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.json")
-		content := `{"api_key": "sk-test-123", "diff_mode": false}`
+		content := `{"api_key": "sk-test-123", "diff_mode": "anchored"}`
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			t.Fatal(err)
 		}
@@ -70,8 +70,37 @@ func TestLoadFrom(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if cfg.DiffMode == nil || *cfg.DiffMode {
-			t.Error("DiffMode should be false when set explicitly")
+		if cfg.DiffMode == nil || *cfg.DiffMode != "anchored" {
+			t.Errorf("DiffMode should be \"anchored\", got %v", cfg.DiffMode)
+		}
+	})
+
+	t.Run("diff_mode off", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.json")
+		content := `{"api_key": "sk-test-123", "diff_mode": "off"}`
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFrom(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.DiffMode == nil || *cfg.DiffMode != "off" {
+			t.Errorf("DiffMode should be \"off\", got %v", cfg.DiffMode)
+		}
+	})
+
+	t.Run("diff_mode invalid", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.json")
+		content := `{"api_key": "sk-test-123", "diff_mode": "bogus"}`
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := LoadFrom(path)
+		if err != ErrInvalidDiffMode {
+			t.Errorf("error = %v, want ErrInvalidDiffMode", err)
 		}
 	})
 

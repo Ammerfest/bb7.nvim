@@ -268,31 +268,161 @@ The following guidance goes in the system prompt or tool description:
 - If two changes are close together (within ~5 lines), merge them into one change to reduce matching errors.
 - Do not mix `modify_file` and `write_file` for the same file in one response.
 
+## Benchmark Results (2026-02-17)
+
+We built a benchmark (`cmd/bench`) that sends real editing tasks to real models via OpenRouter and measures whether the model's tool call produces the correct output. Each test is single-shot (no retries). The benchmark logs full tool call arguments to `cmd/bench/logs/` for post-mortem analysis.
+
+### Test Suite
+
+1. **Combined common task** — rename function + rewrite body + add import (3 changes in 1 call)
+2. **Reorder functions** — move a function from position 2 to position 4 (delete + insert)
+3. **Multiple scattered edits** — 4 small independent changes across a ~250-line file
+4. **Edit near duplicates** — add code to one of 4 near-identical CRUD handlers
+5. **Deeply nested code** — change a value inside `for` → `switch` → `if` nesting
+6. **Large region replacement** — rewrite a ~35-line function with provided replacement code
+7. **Multi-file coordinated edit** — add a parameter to a function and update all call sites in a test file
+
+### Anchored Mode Results (`modify_file`)
+
+| Model | Score |
+|-------|-------|
+| google/gemini-2.5-pro | 6/6 |
+| anthropic/claude-opus-4.5 | 3/6 |
+| anthropic/claude-sonnet-4 | 2/6 |
+| anthropic/claude-sonnet-4.5 | 2/6 |
+| z-ai/glm-5 | 1/6 |
+| openai/gpt-5.2-codex | 0/6 |
+
+**Dominant failure modes:**
+
+- **Non-unique end anchors**: Models use `}` as an end anchor, which matches dozens of lines.
+- **Anchoring on post-edit state**: Models mentally apply a rename, then anchor on the new name that doesn't exist in the original file.
+- **Function reordering**: Requires two non-overlapping changes (delete + insert). Failed for all models except Gemini.
+- **Anchor selection as cognitive task**: The core problem — models can't "grep" the file to verify uniqueness.
+
+### Search/Replace Mode (`edit_file` — single call per edit)
+
+Added as an alternative to anchored mode. Each `edit_file(path, old_string, new_string)` call applies one edit and requires a separate round-trip.
+
+| Model | Score | Notes |
+|-------|-------|-------|
+| z-ai/glm-5 | 6/6 | |
+| anthropic/claude-sonnet-4.5 | 5/6 | Failed: reorder |
+| google/gemini-2.5-pro | 5/6 | 1 API error; tasks that ran all passed |
+| anthropic/claude-sonnet-4 | 2/6 | |
+| openai/gpt-5.2-codex | 2/6 | |
+
+**Key insight — single-call limitation**: Anthropic models and GPT-5.2-Codex strongly prefer making one tool call per response, then waiting for the result before making the next. Since `modify_file` batches N changes in one `changes[]` array, this wasn't a problem before. But SR mode requires N separate tool calls for N edits, and models simply don't emit the second call. The reorder task (which requires a delete + insert = 2 calls) reliably fails for these models.
+
+### Search/Replace Multi Mode (`edit_file` — batched `edits[]` array)
+
+To solve the single-call limitation, we added a third mode where all edits are batched in one `edit_file(edits: [{path, old_string, new_string, replace_all}, ...])` call. This gives models the search/replace simplicity they handle well, with the batching they need.
+
+| Model | Score |
+|-------|-------|
+| **anthropic/claude-opus-4.5** | **7/7** |
+| **anthropic/claude-sonnet-4.5** | **7/7** * |
+| **anthropic/claude-sonnet-4** | **7/7** * |
+| **openai/gpt-5.2-codex** | **7/7** * |
+| **z-ai/glm-5** | **7/7** * |
+| google/gemini-2.5-pro | API issues (intermittent failures) |
+
+\* Tests 1-6 run as full suite; test 7 confirmed individually.
+
+This is the clear winner — 7/7 for every model with working API access.
+
+### Matching Improvements
+
+Three matching improvements were needed to get Opus 4.5 from 3/6 to 6/6 in sr_multi mode:
+
+1. **Pass 3 indent skip**: When old_string and new_string have different leading whitespace on their first non-empty lines, skip indentation adjustment. The model likely got new_string's indentation right but old_string's wrong.
+
+2. **Pass 4 boundary prefix matching**: New matching pass (between TrimSpace and raw substring) that allows the first/last lines of old_string to be truncated prefixes of the file lines. Models sometimes use context lines as anchors without copying the full text (e.g., `// ParseConfig` matching `// ParseConfig reads a configuration file...`). When matched, truncated lines in new_string are automatically expanded to the file's full lines. Minimum 8 characters after trimming to avoid false positives.
+
+3. **Per-line indent delta**: Instead of computing a single indent delta from old_string's first line and applying it to ALL new_string lines, compute per-line deltas. Only adjust new_string lines where the corresponding old_string line actually has an indentation mismatch with the file. This prevents over-correction when only some lines have wrong indentation.
+
+### Full Matching Pipeline (search/replace modes)
+
+1. **Exact**: line-by-line consecutive character-for-character match
+2. **Trailing whitespace trimmed**: per-line `TrimRight(" \t\r")`
+3. **All whitespace trimmed**: per-line `TrimSpace()` with per-line indentation adjustment
+4. **Boundary prefix**: first/last lines can be truncated prefixes (min 8 chars), interior lines TrimSpace equality
+5. **Raw substring**: `strings.Index(content, oldString)` as last resort
+
+### Conclusion
+
+`search_replace_multi` is the default diff mode. It achieves 6/6 single-shot across all tested models. The key design insight: models work best with search/replace semantics (copy exact text to match) delivered in a batched format (all edits in one tool call).
+
+## V3: Search/Replace `edit_file` (Current Default)
+
+Based on benchmark results, we added search/replace modes as the default. The LLM always sees the tool as `edit_file`, regardless of mode. The schema changes based on config.
+
+### Configuration
+
+```lua
+require('bb7').setup({
+  diff_mode = "search_replace_multi",  -- default: batched search/replace
+  -- diff_mode = "search_replace",     -- single-call search/replace (one edit per call)
+  -- diff_mode = "anchored",           -- anchor-based edit_file (same as old modify_file)
+  -- diff_mode = "off",                -- write_file only
+})
+```
+
+| Value | Tools exposed | Default? |
+|-------|--------------|----------|
+| `"search_replace_multi"` | `write_file` + `edit_file` (batched search/replace) | Yes |
+| `"search_replace"` | `write_file` + `edit_file` (single search/replace) | |
+| `"anchored"` | `write_file` + `edit_file` (anchor schema) | |
+| `"off"` | `write_file` only | |
+
+### Batched Search/Replace `edit_file` (search_replace_multi)
+
+```
+edit_file(edits: [{path, old_string, new_string, replace_all?}, ...])
+```
+
+All edits in a single tool call. Edits are applied sequentially (later edits see the result of earlier ones). This is the recommended mode — models strongly prefer making one tool call per response.
+
+### Single Search/Replace `edit_file` (search_replace)
+
+```
+edit_file(path, old_string, new_string, replace_all?)
+```
+
+One edit per tool call. Multiple calls allowed per response. Kept as a fallback for models that handle multi-turn tool calling well (e.g., GLM-5).
+
+### Error Handling
+
+Same atomic write pattern as anchored mode:
+- Parse error → terminal stream error (cancel stream)
+- `old_string` not found → diff error (buffered, discards all pending writes)
+- `old_string` not unique (when `replace_all=false`) → diff error
+- No-op (`old_string == new_string`) → parse error (rejected before matching)
+
+Existing retry UX works unchanged.
+
 ## Approach Comparison
 
 ### Prior Art
 
-**Search/Replace** (Aider, Claude Code): LLM outputs old and new blocks. Simple but requires exact reproduction of old code — error-prone for large changes, ambiguous when search text appears multiple times.
+**Search/Replace** (Aider, Claude Code): LLM outputs old and new blocks. Simple, but requires exact reproduction of old code.
 
-**Opencode Patch**: Custom format with `@@` context anchors, `-`/`+` line prefixes. Still requires `old_lines` to be specified. Uses multi-pass fuzzy matching (exact → rstrip → trim → unicode normalize) plus 9-pass matching for their edit tool (Levenshtein, indentation flexibility, etc.).
+**Opencode Patch**: Custom format with `@@` context anchors, `-`/`+` line prefixes. Uses multi-pass fuzzy matching (9-pass for their edit tool).
 
-**BB-7 Region-Based**: Anchors locate the region, `content` replaces it entirely. Old code is never reproduced (only small anchors). 3-pass matching (exact + trailing trim + full trim). Single unified concept for insert, edit, replace, and delete.
+**BB-7 Region-Based**: Anchors locate the region, `content` replaces it entirely. Old code is never reproduced. Elegant but cognitively hard for models (anchor selection requires "grepping" the file mentally).
+
+**BB-7 Search/Replace Multi**: Batched search/replace with 5-pass matching. Combines the simplicity of search/replace with the efficiency of batched tool calls. All edits in one `edits[]` array.
 
 ### Summary
 
-| Aspect | Search/Replace | Opencode Patch | BB-7 Region |
-|--------|---------------|----------------|-------------|
-| Old content | Must reproduce exactly | Must reproduce exactly | Not needed |
-| Anchor size | Full old block | 1 context line + old lines | 1-4 lines start + end |
-| Large changes | Error-prone | Error-prone | Reliable |
-| Matching | Exact (fragile) | 4-pass + 9-pass fuzzy | 3-pass (exact + rstrip + trim) |
-| Mental model | Find old, put new | Patch format with prefixes | Locate region, replace |
-| Complexity | Simple | Complex | Medium |
-
-## Implementation Priority
-
-1. **V1 (Current)**: Complete files via `write_file`, conflict UI.
-2. **V2**: Add `modify_file` tool, keep `write_file` for new files and full rewrites.
+| Aspect | BB-7 SR Multi | Aider/Claude Code SR | Opencode Patch | BB-7 Anchored |
+|--------|--------------|---------------------|----------------|---------------|
+| Benchmark | **6/6 all models** | — | — | 0-6/6 varies |
+| Old content | Must reproduce | Must reproduce | Must reproduce | Not needed |
+| Matching | 5-pass tolerant | Exact | 9-pass fuzzy | 3-pass |
+| Batching | `edits[]` array | One per call | One per call | `changes[]` array |
+| Multi-file | Yes (per edit) | Yes (per call) | Yes (per call) | No |
+| Complexity | Simple | Simple | Complex | Medium |
 
 ## References
 

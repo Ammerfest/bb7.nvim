@@ -1,0 +1,118 @@
+## File Tools
+
+You have two file tools. `edit_file` is your primary tool:
+
+- `edit_file` — Apply a search/replace edit to an existing file. Use this for all edits to existing files.
+- `write_file` — Write a complete file. Use this only for creating new files. Every `write_file` call must contain the complete file content.
+
+For existing files, always use `edit_file`. Only use `write_file` on an existing file if you are replacing it with entirely different content (different structure, different purpose). When in doubt, use `edit_file`.
+
+Rules for all file tool calls:
+- One file per call. Each call targets exactly one file path.
+- Do not mix tools for the same file. Never use both `edit_file` and `write_file` for the same path in one response.
+- Multiple `edit_file` calls for the same file ARE allowed. Each call sees the result of prior calls.
+- One `write_file` call per file. Do not call `write_file` more than once for the same path in a single response.
+
+## edit_file Reference
+
+### Parameters
+
+`edit_file(path, old_string, new_string, replace_all?)`
+
+- `path` (string, required): Relative file path of the existing file to modify.
+- `old_string` (string, required): The exact text to find in the file. Must match exactly once (unless `replace_all` is true).
+- `new_string` (string, required): The replacement text. May be empty string to delete the matched text.
+- `replace_all` (boolean, optional, default false): Replace all occurrences of `old_string`.
+
+### Matching
+
+The text in `old_string` is compared to the file content line-by-line:
+
+1. **Exact match**: Lines must match character-for-character.
+2. **Trailing whitespace trimmed**: If no exact match, trailing spaces/tabs are ignored.
+3. **All whitespace trimmed**: If still no match, leading and trailing whitespace is ignored (tolerates indentation errors). When this pass matches, `new_string` indentation is automatically adjusted to match the file.
+
+### Examples
+
+All examples operate on this file:
+```
+apple
+banana
+cherry
+date
+elderberry
+fig
+banana
+grape
+```
+
+**Replace one line** (change "cherry" to "cranberry"):
+```json
+{"path": "fruit.txt", "old_string": "cherry", "new_string": "cranberry"}
+```
+
+**Replace multiple lines**:
+```json
+{"path": "fruit.txt", "old_string": "cherry\ndate", "new_string": "cranberry\ndragon fruit"}
+```
+
+**Insert after a line** (add "apricot" after "apple"):
+```json
+{"path": "fruit.txt", "old_string": "apple", "new_string": "apple\napricot"}
+```
+
+**Delete text** (remove "date"):
+```json
+{"path": "fruit.txt", "old_string": "date\n", "new_string": ""}
+```
+
+**Replace all occurrences** ("banana" appears twice):
+```json
+{"path": "fruit.txt", "old_string": "banana", "new_string": "plantain", "replace_all": true}
+```
+
+**Disambiguate with context** ("banana" appears on lines 2 and 7; target the second):
+```json
+{"path": "fruit.txt", "old_string": "fig\nbanana", "new_string": "fig\nblueberry"}
+```
+
+**Error — old_string not found**:
+```json
+{"path": "fruit.txt", "old_string": "orange", "new_string": "tangerine"}
+```
+"orange" does not exist in the file. The call fails.
+
+**Error — old_string not unique**:
+```json
+{"path": "fruit.txt", "old_string": "banana", "new_string": "plantain"}
+```
+"banana" matches lines 2 and 7. The call fails. Fix: include surrounding lines for context, or use `replace_all`.
+
+**Error — no-op** (old_string equals new_string):
+```json
+{"path": "fruit.txt", "old_string": "cherry", "new_string": "cherry"}
+```
+This changes nothing. Do not make this call.
+
+**Move a block** (requires two calls — delete from old position, insert at new position):
+
+Suppose the file has functions in order A, B, C, D and you need to move B to after C (new order: A, C, B, D). This requires two `edit_file` calls:
+
+Call 1 — remove B from between A and C (include the blank line separators as context):
+```json
+{"path": "main.go", "old_string": "}\n\n// B does something.\nfunc B() {\n\treturn\n}\n\n// C does", "new_string": "}\n\n// C does"}
+```
+
+Call 2 — insert B between C and D:
+```json
+{"path": "main.go", "old_string": "}\n\n// D does", "new_string": "}\n\n// B does something.\nfunc B() {\n\treturn\n}\n\n// D does"}
+```
+
+### Guidelines
+
+- **One logical edit per call.** Make each `edit_file` call a single, focused change. A task requiring 4 changes needs 4 separate `edit_file` calls. Each call sees the result of prior calls, so later calls must account for earlier changes.
+- **Include enough context for uniqueness.** If the line you want to change could appear elsewhere in the file, include one or more surrounding lines in `old_string` and reproduce them unchanged in `new_string`.
+- **Preserve blank line separators.** When deleting or moving a block (like a function), include the surrounding blank lines in `old_string` and `new_string` so you don't leave double blank lines behind.
+- **Copy `old_string` exactly from the file.** Include indentation (spaces/tabs) as they appear. Matching is exact.
+- **`new_string` replaces `old_string` entirely.** To keep lines from `old_string`, repeat them in `new_string`.
+- A `@retry_context` section may appear in user messages. It contains details of your previously failed tool calls. Fix the errors described and retry the file changes. Any other text in `@latest` represents additional user instructions.

@@ -118,6 +118,20 @@ type ModifyFileArgs struct {
 	Changes []ModifyFileChange `json:"changes"`
 }
 
+// EditFileArgs is the parsed arguments for the edit_file tool (search/replace mode).
+type EditFileArgs struct {
+	Path       string `json:"path"`
+	OldString  string `json:"old_string"`
+	NewString  string `json:"new_string"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
+}
+
+// EditFileMultiArgs is the parsed arguments for the edit_file tool (search/replace multi mode).
+// Contains an array of edits applied sequentially.
+type EditFileMultiArgs struct {
+	Edits []EditFileArgs `json:"edits"`
+}
+
 // BalanceResponse from /api/v1/credits endpoint.
 type BalanceResponse struct {
 	Data struct {

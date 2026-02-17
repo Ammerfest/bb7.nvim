@@ -35,6 +35,10 @@ go.work.sum
 # Local scratch/test artifacts
 .tmp/
 
+# Benchmark logs and binaries
+/bench
+cmd/bench/logs/
+
 # Editor/IDE
 # .idea/
 # .vscode/

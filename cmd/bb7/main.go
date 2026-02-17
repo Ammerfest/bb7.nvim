@@ -39,6 +39,15 @@ var writeFilePrompt string
 //go:embed modify_file_prompt.txt
 var modifyFilePrompt string
 
+//go:embed edit_file_sr_prompt.txt
+var editFileSRPrompt string
+
+//go:embed edit_file_anchor_prompt.txt
+var editFileAnchorPrompt string
+
+//go:embed edit_file_sr_multi_prompt.txt
+var editFileSRMultiPrompt string
+
 var (
 	appState  = state.New()
 	appConfig *config.Config
@@ -1151,9 +1160,14 @@ func handleSend(reqID string, req map[string]any) {
 	}
 
 	diffMode := *appConfig.DiffMode
-	if diffMode {
-		fullSystemPrompt += "\n" + modifyFilePrompt
-	} else {
+	switch diffMode {
+	case "search_replace":
+		fullSystemPrompt += "\n" + editFileSRPrompt
+	case "search_replace_multi":
+		fullSystemPrompt += "\n" + editFileSRMultiPrompt
+	case "anchored":
+		fullSystemPrompt += "\n" + editFileAnchorPrompt
+	default:
 		fullSystemPrompt += "\n" + writeFilePrompt
 	}
 
@@ -1177,7 +1191,7 @@ func handleSend(reqID string, req map[string]any) {
 	var streamErr string
 
 	// Stream response
-	log.Info("Starting LLM stream for model: %s", model)
+	log.Info("Starting LLM stream for model: %s (diff_mode: %s)", model, diffMode)
 	streamStart := time.Now()
 	err = llmClient.ChatStream(ctx, model, fullSystemPrompt, messages, reasoningConfig, diffMode, func(event llm.StreamEvent) {
 		switch event.Type {
@@ -1236,7 +1250,155 @@ func handleSend(reqID string, req map[string]any) {
 				outputFiles = append(outputFiles, args.Path)
 				respond(reqID, map[string]any{"type": "chunk", "content": "\n[" + action + ": " + args.Path + "]\n"})
 
+			case "edit_file":
+				switch diffMode {
+				case "search_replace_multi":
+					args, err := llm.ParseEditFileMultiArgs(event.ToolCall.Function.Arguments)
+					if err != nil {
+						log.Info("Failed to parse edit_file args: %v", err)
+						setTerminalStreamError(&streamErr, fmt.Sprintf("edit_file parse error: %v", err), cancel)
+						return
+					}
+
+					// Apply each edit sequentially
+					for i, edit := range args.Edits {
+						fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "edit_file", Path: edit.Path, Args: event.ToolCall.Function.Arguments})
+
+						// Resolve base content
+						stateMu.Lock()
+						base, baseSource := resolveFileBase(edit.Path, pendingWrites)
+						stateMu.Unlock()
+						if baseSource == "" {
+							msg := fmt.Sprintf("edit_file: %s not in context or output", edit.Path)
+							log.Info(msg)
+							setTerminalStreamError(&streamErr, msg, cancel)
+							return
+						}
+
+						newContent, err := diff.Replace(base, edit.OldString, edit.NewString, edit.ReplaceAll)
+						if err != nil {
+							detail := fmt.Sprintf("edit_file edit %d (%s): %v", i, edit.Path, err)
+							log.Info(detail)
+							diffErrors = append(diffErrors, detail)
+							return
+						}
+
+						writeCalls = append(writeCalls, llm.WriteFileArgs{Path: edit.Path, Content: newContent})
+						pendingWrites[edit.Path] = newContent
+
+						if !seenOutputPaths[edit.Path] {
+							seenOutputPaths[edit.Path] = true
+							outputFiles = append(outputFiles, edit.Path)
+						}
+
+						log.Info("Assistant modified (search_replace_multi): %s edit %d (%d bytes, base=%s)", edit.Path, i, len(newContent), baseSource)
+					}
+					respond(reqID, map[string]any{"type": "chunk", "content": fmt.Sprintf("\n[Assistant modified: %d edit(s)]\n", len(args.Edits))})
+
+				case "search_replace":
+					args, err := llm.ParseEditFileArgs(event.ToolCall.Function.Arguments)
+					if err != nil {
+						log.Info("Failed to parse edit_file args: %v", err)
+						setTerminalStreamError(&streamErr, fmt.Sprintf("edit_file parse error: %v", err), cancel)
+						return
+					}
+					fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "edit_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
+
+					// Resolve base content: pending writes first, then output, then context
+					stateMu.Lock()
+					base, baseSource := resolveFileBase(args.Path, pendingWrites)
+					stateMu.Unlock()
+					if baseSource == "" {
+						msg := fmt.Sprintf("edit_file: %s not in context or output", args.Path)
+						log.Info(msg)
+						setTerminalStreamError(&streamErr, msg, cancel)
+						return
+					}
+
+					newContent, err := diff.Replace(base, args.OldString, args.NewString, args.ReplaceAll)
+					if err != nil {
+						detail := fmt.Sprintf("edit_file %s: %v", args.Path, err)
+						log.Info(detail)
+						diffErrors = append(diffErrors, detail)
+						return
+					}
+
+					writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
+					// Buffer write — committed after streaming completes if no diff errors
+					// Multiple edit_file calls for the same path are allowed (sequential)
+					pendingWrites[args.Path] = newContent
+
+					if !seenOutputPaths[args.Path] {
+						seenOutputPaths[args.Path] = true
+						outputFiles = append(outputFiles, args.Path)
+					}
+
+					log.Info("Assistant modified (search_replace): %s (%d bytes, base=%s)", args.Path, len(newContent), baseSource)
+					respond(reqID, map[string]any{"type": "chunk", "content": "\n[Assistant modified: " + args.Path + "]\n"})
+
+				case "anchored":
+					args, err := llm.ParseModifyFileArgs(event.ToolCall.Function.Arguments)
+					if err != nil {
+						log.Info("Failed to parse edit_file args: %v", err)
+						setTerminalStreamError(&streamErr, fmt.Sprintf("edit_file parse error: %v", err), cancel)
+						return
+					}
+					fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "edit_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
+					if seenOutputPaths[args.Path] {
+						log.Info("Duplicate file output for path in single response: %s", args.Path)
+						if !duplicatePathDetected {
+							setTerminalStreamError(&streamErr, "Duplicate file output for path in single response: "+args.Path, cancel)
+							duplicatePathDetected = true
+						}
+						return
+					}
+					seenOutputPaths[args.Path] = true
+
+					// Resolve base content: pending writes first, then output, then context
+					stateMu.Lock()
+					base, baseSource := resolveFileBase(args.Path, pendingWrites)
+					stateMu.Unlock()
+					if baseSource == "" {
+						msg := fmt.Sprintf("edit_file: %s not in context or output", args.Path)
+						log.Info(msg)
+						setTerminalStreamError(&streamErr, msg, cancel)
+						return
+					}
+
+					// Convert llm.ModifyFileChange → diff.Change
+					diffChanges := make([]diff.Change, len(args.Changes))
+					for i, c := range args.Changes {
+						diffChanges[i] = diff.Change{
+							Start:   c.Start,
+							End:     c.End,
+							Content: c.Content,
+						}
+					}
+
+					applyResult, err := diff.Apply(diff.SplitLines(base), diffChanges)
+					if err != nil {
+						detail := fmt.Sprintf("edit_file %s: %v", args.Path, err)
+						log.Info(detail)
+						diffErrors = append(diffErrors, detail)
+						return
+					}
+
+					if len(applyResult.DroppedNoOp) > 0 {
+						log.Info("edit_file %s: dropped %d no-op change(s): indices %v", args.Path, len(applyResult.DroppedNoOp), applyResult.DroppedNoOp)
+					}
+
+					newContent := diff.JoinLines(applyResult.Lines)
+					writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
+					// Buffer write — committed after streaming completes if no diff errors
+					pendingWrites[args.Path] = newContent
+
+					log.Info("Assistant modified (anchored): %s (%d bytes, base=%s)", args.Path, len(newContent), baseSource)
+					outputFiles = append(outputFiles, args.Path)
+					respond(reqID, map[string]any{"type": "chunk", "content": "\n[Assistant modified: " + args.Path + "]\n"})
+				}
+
 			case "modify_file":
+				// Legacy: only used by benchmark (cmd/bench)
 				args, err := llm.ParseModifyFileArgs(event.ToolCall.Function.Arguments)
 				if err != nil {
 					log.Info("Failed to parse modify_file args: %v", err)
@@ -1254,7 +1416,6 @@ func handleSend(reqID string, req map[string]any) {
 				}
 				seenOutputPaths[args.Path] = true
 
-				// Resolve base content: pending writes first, then output, then context
 				stateMu.Lock()
 				base, baseSource := resolveFileBase(args.Path, pendingWrites)
 				stateMu.Unlock()
@@ -1265,7 +1426,6 @@ func handleSend(reqID string, req map[string]any) {
 					return
 				}
 
-				// Convert llm.ModifyFileChange → diff.Change
 				diffChanges := make([]diff.Change, len(args.Changes))
 				for i, c := range args.Changes {
 					diffChanges[i] = diff.Change{
@@ -1289,7 +1449,6 @@ func handleSend(reqID string, req map[string]any) {
 
 				newContent := diff.JoinLines(applyResult.Lines)
 				writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
-				// Buffer write — committed after streaming completes if no diff errors
 				pendingWrites[args.Path] = newContent
 
 				log.Info("Assistant modified (diff): %s (%d bytes, base=%s)", args.Path, len(newContent), baseSource)
@@ -1994,7 +2153,7 @@ func parseRetryContext(rc map[string]any) *retryContextData {
 
 func formatRetryContext(rc *retryContextData) string {
 	var b strings.Builder
-	b.WriteString("Your previous modify_file calls failed. Errors:\n")
+	b.WriteString("Your previous edit_file calls failed. Errors:\n")
 	for _, e := range rc.Errors {
 		b.WriteString("- " + e + "\n")
 	}
@@ -2128,6 +2287,8 @@ func errorResponse(err error) map[string]any {
 		msg = "Config file not found: ~/.config/bb7/config.json"
 	case errors.Is(err, config.ErrNoAPIKey):
 		msg = "API key not set in config"
+	case errors.Is(err, config.ErrInvalidDiffMode):
+		msg = err.Error()
 	default:
 		msg = err.Error()
 	}

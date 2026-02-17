@@ -55,8 +55,8 @@ func TestParseWriteFileArgs(t *testing.T) {
 }
 
 func TestDefaultTools(t *testing.T) {
-	t.Run("diffMode false", func(t *testing.T) {
-		tools := DefaultTools(false)
+	t.Run("diffMode off", func(t *testing.T) {
+		tools := DefaultTools("off")
 		if len(tools) != 1 {
 			t.Fatalf("len(tools) = %d, want 1", len(tools))
 		}
@@ -65,21 +65,52 @@ func TestDefaultTools(t *testing.T) {
 		}
 	})
 
-	t.Run("diffMode true", func(t *testing.T) {
-		tools := DefaultTools(true)
+	t.Run("diffMode search_replace", func(t *testing.T) {
+		tools := DefaultTools("search_replace")
 		if len(tools) != 2 {
 			t.Fatalf("len(tools) = %d, want 2", len(tools))
 		}
 		if tools[0].Function.Name != "write_file" {
 			t.Errorf("tools[0] = %q, want %q", tools[0].Function.Name, "write_file")
 		}
-		if tools[1].Function.Name != "modify_file" {
-			t.Errorf("tools[1] = %q, want %q", tools[1].Function.Name, "modify_file")
+		if tools[1].Function.Name != "edit_file" {
+			t.Errorf("tools[1] = %q, want %q", tools[1].Function.Name, "edit_file")
+		}
+		// Verify search/replace schema has old_string
+		params := tools[1].Function.Parameters
+		props, ok := params["properties"].(map[string]any)
+		if !ok {
+			t.Fatal("expected properties")
+		}
+		if _, ok := props["old_string"]; !ok {
+			t.Error("expected 'old_string' property in search_replace mode")
+		}
+	})
+
+	t.Run("diffMode anchored", func(t *testing.T) {
+		tools := DefaultTools("anchored")
+		if len(tools) != 2 {
+			t.Fatalf("len(tools) = %d, want 2", len(tools))
+		}
+		if tools[0].Function.Name != "write_file" {
+			t.Errorf("tools[0] = %q, want %q", tools[0].Function.Name, "write_file")
+		}
+		if tools[1].Function.Name != "edit_file" {
+			t.Errorf("tools[1] = %q, want %q", tools[1].Function.Name, "edit_file")
+		}
+		// Verify anchored schema has changes
+		params := tools[1].Function.Parameters
+		props, ok := params["properties"].(map[string]any)
+		if !ok {
+			t.Fatal("expected properties")
+		}
+		if _, ok := props["changes"]; !ok {
+			t.Error("expected 'changes' property in anchored mode")
 		}
 	})
 
 	t.Run("write_file schema", func(t *testing.T) {
-		tool := DefaultTools(false)[0]
+		tool := DefaultTools("off")[0]
 		if tool.Type != "function" {
 			t.Errorf("tool.Type = %q, want %q", tool.Type, "function")
 		}
@@ -93,24 +124,6 @@ func TestDefaultTools(t *testing.T) {
 		}
 		if _, ok := props["content"]; !ok {
 			t.Error("expected 'content' property")
-		}
-	})
-
-	t.Run("modify_file schema", func(t *testing.T) {
-		tool := DefaultTools(true)[1]
-		if tool.Type != "function" {
-			t.Errorf("tool.Type = %q, want %q", tool.Type, "function")
-		}
-		params := tool.Function.Parameters
-		props, ok := params["properties"].(map[string]any)
-		if !ok {
-			t.Fatal("expected properties in parameters")
-		}
-		if _, ok := props["path"]; !ok {
-			t.Error("expected 'path' property")
-		}
-		if _, ok := props["changes"]; !ok {
-			t.Error("expected 'changes' property")
 		}
 	})
 }
@@ -209,6 +222,68 @@ func TestParseModifyFileArgs(t *testing.T) {
 
 	t.Run("invalid json", func(t *testing.T) {
 		_, err := ParseModifyFileArgs(`not json`)
+		if err == nil {
+			t.Error("expected error for invalid json")
+		}
+	})
+}
+
+func TestParseEditFileArgs(t *testing.T) {
+	t.Run("valid args", func(t *testing.T) {
+		args, err := ParseEditFileArgs(`{"path": "main.go", "old_string": "hello", "new_string": "world"}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if args.Path != "main.go" {
+			t.Errorf("Path = %q, want %q", args.Path, "main.go")
+		}
+		if args.OldString != "hello" {
+			t.Errorf("OldString = %q, want %q", args.OldString, "hello")
+		}
+		if args.NewString != "world" {
+			t.Errorf("NewString = %q, want %q", args.NewString, "world")
+		}
+		if args.ReplaceAll {
+			t.Error("ReplaceAll should default to false")
+		}
+	})
+
+	t.Run("with replace_all", func(t *testing.T) {
+		args, err := ParseEditFileArgs(`{"path": "main.go", "old_string": "a", "new_string": "b", "replace_all": true}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !args.ReplaceAll {
+			t.Error("ReplaceAll should be true")
+		}
+	})
+
+	t.Run("missing path", func(t *testing.T) {
+		_, err := ParseEditFileArgs(`{"old_string": "a", "new_string": "b"}`)
+		if err == nil {
+			t.Error("expected error for missing path")
+		}
+	})
+
+	t.Run("missing old_string", func(t *testing.T) {
+		_, err := ParseEditFileArgs(`{"path": "x.go", "new_string": "b"}`)
+		if err == nil {
+			t.Error("expected error for missing old_string")
+		}
+	})
+
+	t.Run("no-op", func(t *testing.T) {
+		_, err := ParseEditFileArgs(`{"path": "x.go", "old_string": "same", "new_string": "same"}`)
+		if err == nil {
+			t.Error("expected error for no-op")
+		}
+		if !strings.Contains(err.Error(), "no-op") {
+			t.Errorf("error = %q, want to contain 'no-op'", err.Error())
+		}
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		_, err := ParseEditFileArgs(`not json`)
 		if err == nil {
 			t.Error("expected error for invalid json")
 		}

@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	ErrNoConfig    = errors.New("config file not found")
-	ErrNoAPIKey    = errors.New("api_key not set in config")
-	ErrInvalidJSON = errors.New("invalid config JSON")
+	ErrNoConfig       = errors.New("config file not found")
+	ErrNoAPIKey       = errors.New("api_key not set in config")
+	ErrInvalidJSON    = errors.New("invalid config JSON")
+	ErrInvalidDiffMode = errors.New("diff_mode must be \"search_replace\", \"search_replace_multi\", \"anchored\", or \"off\"")
 )
 
 // Config holds the global BB-7 configuration.
@@ -21,7 +22,7 @@ type Config struct {
 	TitleModel         string `json:"title_model"`          // Model for auto-generating chat titles (cheap/fast)
 	AllowDataRetention *bool  `json:"allow_data_retention"` // Allow providers that retain data (default: true)
 	AllowTraining      *bool  `json:"allow_training"`       // Allow providers that train on data (default: false)
-	DiffMode           *bool  `json:"diff_mode"`            // Enable modify_file tool for region-based diffs (default: true)
+	DiffMode           *string `json:"diff_mode"`            // Diff tool mode: "search_replace_multi", "search_replace", "anchored", or "off"
 }
 
 // Load reads the config from ~/.config/bb7/config.json.
@@ -73,8 +74,14 @@ func LoadFrom(path string) (*Config, error) {
 		cfg.AllowTraining = &f
 	}
 	if cfg.DiffMode == nil {
-		dm := true
+		dm := "search_replace_multi"
 		cfg.DiffMode = &dm
+	}
+	switch *cfg.DiffMode {
+	case "search_replace", "search_replace_multi", "anchored", "off":
+		// valid
+	default:
+		return nil, ErrInvalidDiffMode
 	}
 
 	return &cfg, nil

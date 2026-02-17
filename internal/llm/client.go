@@ -66,7 +66,7 @@ type StreamCallback func(event StreamEvent)
 // ChatStream sends a chat request and streams the response.
 // The callback is called for each event (content chunks, tool calls, completion).
 // If reasoning is non-nil, extended thinking is enabled with the specified effort level.
-func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, diffMode bool, callback StreamCallback) error {
+func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, diffMode string, callback StreamCallback) error {
 	// Prepend system message
 	allMessages := make([]Message, 0, len(messages)+1)
 	allMessages = append(allMessages, Message{
@@ -297,6 +297,56 @@ func ParseModifyFileArgs(argsJSON string) (*ModifyFileArgs, error) {
 			c.Content = []string{}
 		}
 	}
+	return &args, nil
+}
+
+// ParseEditFileArgs parses the arguments JSON for an edit_file tool call (search/replace mode).
+func ParseEditFileArgs(argsJSON string) (*EditFileArgs, error) {
+	var args EditFileArgs
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return nil, err
+	}
+	if args.Path == "" {
+		return nil, errors.New("edit_file: missing path")
+	}
+	if args.OldString == "" {
+		return nil, errors.New("edit_file: missing old_string")
+	}
+	if args.OldString == args.NewString {
+		return nil, errors.New("edit_file: old_string and new_string are identical (no-op)")
+	}
+	return &args, nil
+}
+
+// ParseEditFileMultiArgs parses the arguments JSON for an edit_file tool call (search/replace multi mode).
+func ParseEditFileMultiArgs(argsJSON string) (*EditFileMultiArgs, error) {
+	var args EditFileMultiArgs
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return nil, err
+	}
+	if len(args.Edits) == 0 {
+		return nil, errors.New("edit_file: no edits")
+	}
+	// Validate and filter: skip no-op edits (old_string == new_string)
+	// silently rather than erroring — models sometimes include unchanged
+	// lines for thoroughness when editing multiple call sites.
+	var filtered []EditFileArgs
+	for i, edit := range args.Edits {
+		if edit.Path == "" {
+			return nil, fmt.Errorf("edit_file: edit %d: missing path", i)
+		}
+		if edit.OldString == "" {
+			return nil, fmt.Errorf("edit_file: edit %d: missing old_string", i)
+		}
+		if edit.OldString == edit.NewString {
+			continue // skip no-op
+		}
+		filtered = append(filtered, edit)
+	}
+	if len(filtered) == 0 {
+		return nil, errors.New("edit_file: all edits are no-ops")
+	}
+	args.Edits = filtered
 	return &args, nil
 }
 
