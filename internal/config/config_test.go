@@ -13,7 +13,8 @@ func TestLoadFrom(t *testing.T) {
 		content := `{
 			"api_key": "sk-test-123",
 			"base_url": "https://api.example.com",
-			"default_model": "gpt-4"
+			"default_model": "gpt-4",
+			"explicit_cache_key": true
 		}`
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			t.Fatal(err)
@@ -32,6 +33,9 @@ func TestLoadFrom(t *testing.T) {
 		}
 		if cfg.DefaultModel != "gpt-4" {
 			t.Errorf("DefaultModel = %q, want %q", cfg.DefaultModel, "gpt-4")
+		}
+		if cfg.ExplicitCacheKey == nil || !*cfg.ExplicitCacheKey {
+			t.Errorf("ExplicitCacheKey = %v, want true", cfg.ExplicitCacheKey)
 		}
 	})
 
@@ -56,6 +60,9 @@ func TestLoadFrom(t *testing.T) {
 		}
 		if cfg.DiffMode == nil || *cfg.DiffMode != "search_replace_multi" {
 			t.Errorf("DiffMode should default to \"search_replace_multi\", got %v", cfg.DiffMode)
+		}
+		if cfg.ExplicitCacheKey == nil || *cfg.ExplicitCacheKey {
+			t.Errorf("ExplicitCacheKey should default to false, got %v", cfg.ExplicitCacheKey)
 		}
 	})
 

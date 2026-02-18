@@ -23,57 +23,7 @@ var WriteFileTool = Tool{
 	},
 }
 
-// ModifyFileTool applies region-based diffs to an existing file.
-// Used by the benchmark (cmd/bench). For normal operation, use EditFileAnchoredTool.
-var ModifyFileTool = Tool{
-	Type: "function",
-	Function: ToolFunction{
-		Name:        "modify_file",
-		Description: "Apply targeted changes to an existing file using anchor-based regions.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"path": map[string]any{
-					"type":        "string",
-					"description": "Relative file path of the existing file to modify",
-				},
-				"changes": map[string]any{
-					"type":        "array",
-					"description": "List of changes to apply to the file",
-					"items": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"start": map[string]any{
-								"type":        "array",
-								"items":       map[string]any{"type": "string"},
-								"minItems":    1,
-								"maxItems":    10,
-								"description": "1-4 consecutive lines that uniquely mark the start of the region (up to 10 allowed if needed for disambiguation)",
-							},
-							"end": map[string]any{
-								"type":        "array",
-								"items":       map[string]any{"type": "string"},
-								"minItems":    1,
-								"maxItems":    10,
-								"description": "1-4 consecutive lines that mark the end of the region (up to 10 allowed; optional — omit for small edits where start lines are the entire region)",
-							},
-							"content": map[string]any{
-								"type":        "array",
-								"items":       map[string]any{"type": "string"},
-								"description": "Exact replacement lines for the matched region",
-							},
-						},
-						"required": []string{"start", "content"},
-					},
-				},
-			},
-			"required": []string{"path", "changes"},
-		},
-	},
-}
-
 // EditFileAnchoredTool is the anchor-based edit tool exposed as "edit_file".
-// Same schema as ModifyFileTool but with the unified tool name.
 var EditFileAnchoredTool = Tool{
 	Type: "function",
 	Function: ToolFunction{
@@ -85,6 +35,10 @@ var EditFileAnchoredTool = Tool{
 				"path": map[string]any{
 					"type":        "string",
 					"description": "Relative file path of the existing file to modify",
+				},
+				"file_id": map[string]any{
+					"type":        "string",
+					"description": "Optional file identifier from the @file id=... listing for the exact base version to edit.",
 				},
 				"changes": map[string]any{
 					"type":        "array",
@@ -134,6 +88,10 @@ var EditFileSRTool = Tool{
 					"type":        "string",
 					"description": "Relative file path of the existing file to modify",
 				},
+				"file_id": map[string]any{
+					"type":        "string",
+					"description": "Optional file identifier from the @file id=... listing for the exact base version to edit.",
+				},
 				"old_string": map[string]any{
 					"type":        "string",
 					"description": "The exact text to find in the file. Must match exactly once (unless replace_all is true).",
@@ -171,6 +129,10 @@ var EditFileSRMultiTool = Tool{
 							"path": map[string]any{
 								"type":        "string",
 								"description": "Relative file path of the existing file to modify",
+							},
+							"file_id": map[string]any{
+								"type":        "string",
+								"description": "Optional file identifier from the @file id=... listing for the exact base version to edit.",
 							},
 							"old_string": map[string]any{
 								"type":        "string",

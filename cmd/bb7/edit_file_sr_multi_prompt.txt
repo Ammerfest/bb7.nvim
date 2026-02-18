@@ -20,6 +20,7 @@ Rules for all file tool calls:
 
 - `edits` (array, required): List of search/replace edits. Each edit has:
   - `path` (string, required): Relative file path of the existing file to modify.
+  - `file_id` (string, optional): `id` of the base file version from `@file id=...` (recommended when the same path appears more than once, e.g. original + pending output).
   - `old_string` (string, required): The exact text to find in the file. Must match exactly once (unless `replace_all` is true).
   - `new_string` (string, required): The replacement text. May be empty string to delete the matched text.
   - `replace_all` (boolean, optional, default false): Replace all occurrences of `old_string`.
@@ -121,6 +122,7 @@ The first edit removes B; the second inserts B at the new position. Both in one 
 ### Guidelines
 
 - **All edits in one call.** Put every edit into a single `edit_file` call. A task requiring 4 changes across 2 files needs one call with 4 entries in `edits`. Edits are applied sequentially, so later edits see the result of earlier ones.
+- **Use `file_id` when a path is ambiguous.** If `Files:` or `@file` shows the same `path` more than once (for example `status=original` and `status=pending_output`), target the writable one by setting `file_id` to the writable `id`.
 - **Include enough context for uniqueness.** If the line you want to change could appear elsewhere in the file, include one or more surrounding lines in `old_string` and reproduce them unchanged in `new_string`.
 - **Preserve blank line separators.** When deleting or moving a block (like a function), include the surrounding blank lines in `old_string` and `new_string` so you don't leave double blank lines behind.
 - **Copy `old_string` exactly from the file.** Include indentation (spaces/tabs) as they appear. Matching is exact.

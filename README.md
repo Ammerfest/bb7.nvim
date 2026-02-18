@@ -88,7 +88,8 @@ Optional settings:
 {
   "api_key": "sk-or-v1-...",
   "default_model": "anthropic/claude-sonnet-4",
-  "title_model": "anthropic/claude-3-haiku"
+  "title_model": "anthropic/claude-3-haiku",
+  "explicit_cache_key": false
 }
 ```
 
@@ -240,4 +241,3 @@ Open the model picker with `M` in the Input pane or `:BB7Model`. Any OpenRouter 
 - [docs/PLUGIN.md](docs/PLUGIN.md) — Neovim UI architecture
 - [docs/DIFFS.md](docs/DIFFS.md) — Diff handling design
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — Contributor build/test/debug workflows
-

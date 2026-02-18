@@ -34,7 +34,7 @@ func setupSendIntegrationEnv(t *testing.T, baseURL string) {
 		TitleModel:   "test-title-model",
 		DiffMode:     &diffMode,
 	}
-	llmClient = llm.NewClient(baseURL, appConfig.APIKey, false, true)
+	llmClient = llm.NewClient(baseURL, appConfig.APIKey, false, true, false)
 	resetActiveStreamForTest()
 
 	projectRoot := t.TempDir()
@@ -165,6 +165,26 @@ func writeFileArgsJSON(t *testing.T, path, content string) string {
 	return string(data)
 }
 
+func editFileMultiArgsJSON(t *testing.T, edits []map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{
+		"edits": edits,
+	})
+	if err != nil {
+		t.Fatalf("marshal edit_file args failed: %v", err)
+	}
+	return string(data)
+}
+
+func editFileArgsJSON(t *testing.T, args map[string]any) string {
+	t.Helper()
+	data, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal edit_file args failed: %v", err)
+	}
+	return string(data)
+}
+
 func TestHandleSendIntegrationSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/chat/completions" {
@@ -185,6 +205,9 @@ func TestHandleSendIntegrationSuccess(t *testing.T) {
 				},
 			})
 			return
+		}
+		if _, hasPromptCacheKey := reqBody["prompt_cache_key"]; hasPromptCacheKey {
+			t.Fatalf("did not expect prompt_cache_key in default config request: %+v", reqBody["prompt_cache_key"])
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -229,9 +252,12 @@ func TestHandleSendIntegrationSuccess(t *testing.T) {
 			"usage": map[string]any{
 				"prompt_tokens":     12,
 				"completion_tokens": 7,
-				"cached_tokens":     3,
-				"total_tokens":      19,
-				"cost":              0.0012,
+				"prompt_tokens_details": map[string]any{
+					"cached_tokens":      3,
+					"cache_write_tokens": 1,
+				},
+				"total_tokens": 19,
+				"cost":         0.0012,
 			},
 		})
 		writeSSEDone(t, w)
@@ -282,6 +308,9 @@ func TestHandleSendIntegrationSuccess(t *testing.T) {
 	if got := usage["total_tokens"]; got != float64(19) {
 		t.Fatalf("unexpected usage total_tokens: %v", got)
 	}
+	if got := usage["cached_tokens"]; got != float64(3) {
+		t.Fatalf("unexpected usage cached_tokens: %v", got)
+	}
 
 	gotOutput, err := appState.GetOutputFile("src/generated.go")
 	if err != nil {
@@ -314,6 +343,326 @@ func TestHandleSendIntegrationSuccess(t *testing.T) {
 	}
 	if !foundFileEvent {
 		t.Fatalf("missing AssistantWriteFile context_event in assistant message: %+v", assistant.Parts)
+	}
+}
+
+func TestHandleSendIntegrationExplicitCacheKey(t *testing.T) {
+	var seenPromptCacheKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/chat/completions" {
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var reqBody map[string]any
+		json.Unmarshal(body, &reqBody)
+		if stream, ok := reqBody["stream"].(bool); !ok || !stream {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{
+					map[string]any{"message": map[string]any{"content": "Test Title"}},
+				},
+			})
+			return
+		}
+
+		if key, ok := reqBody["prompt_cache_key"].(string); ok {
+			seenPromptCacheKey = key
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEJSON(t, w, map[string]any{
+			"choices": []any{
+				map[string]any{
+					"delta": map[string]any{"content": "Done."},
+				},
+			},
+		})
+		writeSSEDone(t, w)
+	}))
+	defer func() {
+		time.Sleep(50 * time.Millisecond)
+		server.Close()
+	}()
+
+	setupSendIntegrationEnv(t, server.URL)
+	enabled := true
+	appConfig.ExplicitCacheKey = &enabled
+	llmClient = llm.NewClient(server.URL, appConfig.APIKey, false, true, true)
+
+	reqID := "req-send-cache-key"
+	if !reserveActiveStream(reqID) {
+		t.Fatal("failed to reserve active stream")
+	}
+
+	responses := captureJSONResponses(t, func() {
+		handleSend(reqID, map[string]any{
+			"content": "Check cache key",
+			"model":   "test-model",
+		})
+	})
+
+	if countResponsesByType(responses, "error") != 0 {
+		t.Fatalf("expected no error responses, got %+v", responses)
+	}
+	if countResponsesByType(responses, "done") != 1 {
+		t.Fatalf("expected one done response, got %+v", responses)
+	}
+	if seenPromptCacheKey == "" {
+		t.Fatal("expected prompt_cache_key to be sent, got empty")
+	}
+	expectedSuffix := appState.ActiveChat.ID + ":test-model"
+	if !strings.HasSuffix(seenPromptCacheKey, expectedSuffix) {
+		t.Fatalf("unexpected prompt_cache_key %q, expected suffix %q", seenPromptCacheKey, expectedSuffix)
+	}
+}
+
+func TestHandleSendIntegrationConsolidatesWriteEventsPerFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/chat/completions" {
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var reqBody map[string]any
+		json.Unmarshal(body, &reqBody)
+		if stream, ok := reqBody["stream"].(bool); !ok || !stream {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{
+					map[string]any{"message": map[string]any{"content": "Test Title"}},
+				},
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEJSON(t, w, map[string]any{
+			"choices": []any{
+				map[string]any{
+					"delta": map[string]any{"content": "Applied multi-edit update."},
+				},
+			},
+		})
+		writeSSEJSON(t, w, map[string]any{
+			"choices": []any{
+				map[string]any{
+					"delta": map[string]any{
+						"tool_calls": []any{
+							map[string]any{
+								"index": 0,
+								"id":    "call_edit_1",
+								"type":  "function",
+								"function": map[string]any{
+									"name": "edit_file",
+									"arguments": editFileMultiArgsJSON(t, []map[string]any{
+										{
+											"path":        "src/game.c",
+											"old_string":  "Goblin",
+											"new_string":  "Goblin 👺",
+											"replace_all": false,
+										},
+										{
+											"path":        "src/game.c",
+											"old_string":  "Orc",
+											"new_string":  "Orc 🪓",
+											"replace_all": false,
+										},
+									}),
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+		writeSSEJSON(t, w, map[string]any{
+			"usage": map[string]any{
+				"prompt_tokens":     20,
+				"completion_tokens": 10,
+				"total_tokens":      30,
+			},
+		})
+		writeSSEDone(t, w)
+	}))
+	defer func() {
+		time.Sleep(50 * time.Millisecond)
+		server.Close()
+	}()
+
+	setupSendIntegrationEnv(t, server.URL)
+	diffMode := "search_replace_multi"
+	appConfig.DiffMode = &diffMode
+	if err := appState.ContextAdd("src/game.c", "Goblin\nOrc\n"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+
+	reqID := "req-send-consolidated-events"
+	if !reserveActiveStream(reqID) {
+		t.Fatal("failed to reserve active stream")
+	}
+
+	responses := captureJSONResponses(t, func() {
+		handleSend(reqID, map[string]any{
+			"content": "Add emojis to both enemies",
+			"model":   "test-model",
+		})
+	})
+
+	if countResponsesByType(responses, "error") != 0 {
+		t.Fatalf("expected no error responses, got %+v", responses)
+	}
+	if countResponsesByType(responses, "done") != 1 {
+		t.Fatalf("expected one done response, got %+v", responses)
+	}
+
+	gotOutput, err := appState.GetOutputFile("src/game.c")
+	if err != nil {
+		t.Fatalf("GetOutputFile failed: %v", err)
+	}
+	if gotOutput != "Goblin 👺\nOrc 🪓\n" {
+		t.Fatalf("unexpected output content: %q", gotOutput)
+	}
+
+	msgs := appState.ActiveChat.Messages
+	if len(msgs) == 0 {
+		t.Fatal("expected messages in chat")
+	}
+	assistant := msgs[len(msgs)-1]
+	if assistant.Role != "assistant" {
+		t.Fatalf("expected last message role assistant, got %q", assistant.Role)
+	}
+
+	writeEventCount := 0
+	for _, part := range assistant.Parts {
+		if part.Type == "context_event" && part.Action == "AssistantWriteFile" && part.Path == "src/game.c" {
+			writeEventCount++
+		}
+	}
+	if writeEventCount != 1 {
+		t.Fatalf("expected 1 AssistantWriteFile event for src/game.c, got %d (parts=%+v)", writeEventCount, assistant.Parts)
+	}
+}
+
+func TestHandleSendIntegrationFileIDMismatchReturnsDiffError(t *testing.T) {
+	var outputID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/chat/completions" {
+			http.Error(w, "unexpected request", http.StatusNotFound)
+			return
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var reqBody map[string]any
+		json.Unmarshal(body, &reqBody)
+		if stream, ok := reqBody["stream"].(bool); !ok || !stream {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{
+					map[string]any{"message": map[string]any{"content": "Test Title"}},
+				},
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEJSON(t, w, map[string]any{
+			"choices": []any{
+				map[string]any{
+					"delta": map[string]any{"content": "Trying edit with explicit file id."},
+				},
+			},
+		})
+		writeSSEJSON(t, w, map[string]any{
+			"choices": []any{
+				map[string]any{
+					"delta": map[string]any{
+						"tool_calls": []any{
+							map[string]any{
+								"index": 0,
+								"id":    "call_edit_file_id",
+								"type":  "function",
+								"function": map[string]any{
+									"name": "edit_file",
+									"arguments": editFileArgsJSON(t, map[string]any{
+										"path":        "src/game.c",
+										"file_id":     "wrong-file-id",
+										"old_string":  "Goblin 👺",
+										"new_string":  "Goblin 😈",
+										"replace_all": false,
+									}),
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+		writeSSEJSON(t, w, map[string]any{
+			"usage": map[string]any{
+				"prompt_tokens":     40,
+				"completion_tokens": 20,
+				"total_tokens":      60,
+			},
+		})
+		writeSSEDone(t, w)
+	}))
+	defer func() {
+		time.Sleep(50 * time.Millisecond)
+		server.Close()
+	}()
+
+	setupSendIntegrationEnv(t, server.URL)
+	if err := appState.ContextAdd("src/game.c", "Goblin\n"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+	if err := appState.WriteOutputFile("src/game.c", "Goblin 👺\n"); err != nil {
+		t.Fatalf("WriteOutputFile failed: %v", err)
+	}
+	outputID = state.HashFileVersion("src/game.c", "Goblin 👺\n")
+
+	reqID := "req-send-file-id-mismatch"
+	if !reserveActiveStream(reqID) {
+		t.Fatal("failed to reserve active stream")
+	}
+
+	responses := captureJSONResponses(t, func() {
+		handleSend(reqID, map[string]any{
+			"content": "Please apply another emoji edit",
+			"model":   "test-model",
+		})
+	})
+
+	if countResponsesByType(responses, "done") != 0 {
+		t.Fatalf("expected no done response on file_id mismatch, got %+v", responses)
+	}
+	if countResponsesByType(responses, "diff_error") != 1 {
+		t.Fatalf("expected one diff_error response, got %+v", responses)
+	}
+	diffErr := firstResponseByType(responses, "diff_error")
+	errs, ok := diffErr["errors"].([]any)
+	if !ok || len(errs) == 0 {
+		t.Fatalf("expected non-empty diff_error errors, got %+v", diffErr)
+	}
+	firstErr, _ := errs[0].(string)
+	if !strings.Contains(firstErr, "file_id mismatch") {
+		t.Fatalf("expected file_id mismatch error, got %q", firstErr)
+	}
+	if !strings.Contains(firstErr, outputID) {
+		t.Fatalf("expected error to include expected output file id %q, got %q", outputID, firstErr)
+	}
+
+	gotOutput, err := appState.GetOutputFile("src/game.c")
+	if err != nil {
+		t.Fatalf("GetOutputFile failed: %v", err)
+	}
+	if gotOutput != "Goblin 👺\n" {
+		t.Fatalf("expected output to remain unchanged after diff_error, got %q", gotOutput)
 	}
 }
 

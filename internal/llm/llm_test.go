@@ -128,9 +128,9 @@ func TestDefaultTools(t *testing.T) {
 	})
 }
 
-func TestParseModifyFileArgs(t *testing.T) {
+func TestParseAnchoredEditArgs(t *testing.T) {
 	t.Run("valid args", func(t *testing.T) {
-		args, err := ParseModifyFileArgs(`{
+		args, err := ParseAnchoredEditArgs(`{
 			"path": "main.go",
 			"changes": [
 				{
@@ -157,12 +157,16 @@ func TestParseModifyFileArgs(t *testing.T) {
 	})
 
 	t.Run("with end anchor", func(t *testing.T) {
-		args, err := ParseModifyFileArgs(`{
+		args, err := ParseAnchoredEditArgs(`{
 			"path": "main.go",
+			"file_id": "f123",
 			"changes": [{"start": ["a"], "end": ["b"], "content": ["c"]}]
 		}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if args.FileID != "f123" {
+			t.Errorf("FileID = %q, want %q", args.FileID, "f123")
 		}
 		if len(args.Changes[0].End) != 1 || args.Changes[0].End[0] != "b" {
 			t.Errorf("End = %v, want [b]", args.Changes[0].End)
@@ -170,7 +174,7 @@ func TestParseModifyFileArgs(t *testing.T) {
 	})
 
 	t.Run("null content becomes empty slice", func(t *testing.T) {
-		args, err := ParseModifyFileArgs(`{
+		args, err := ParseAnchoredEditArgs(`{
 			"path": "main.go",
 			"changes": [{"start": ["a"], "content": null}]
 		}`)
@@ -186,42 +190,42 @@ func TestParseModifyFileArgs(t *testing.T) {
 	})
 
 	t.Run("missing path", func(t *testing.T) {
-		_, err := ParseModifyFileArgs(`{"changes": [{"start": ["a"], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"changes": [{"start": ["a"], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for missing path")
 		}
 	})
 
 	t.Run("no changes", func(t *testing.T) {
-		_, err := ParseModifyFileArgs(`{"path": "x.go", "changes": []}`)
+		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": []}`)
 		if err == nil {
 			t.Error("expected error for no changes")
 		}
 	})
 
 	t.Run("empty start", func(t *testing.T) {
-		_, err := ParseModifyFileArgs(`{"path": "x.go", "changes": [{"start": [], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": [{"start": [], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for empty start")
 		}
 	})
 
 	t.Run("start too long", func(t *testing.T) {
-		_, err := ParseModifyFileArgs(`{"path": "x.go", "changes": [{"start": ["1","2","3","4","5"], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": [{"start": ["1","2","3","4","5","6","7","8","9","10","11"], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for start too long")
 		}
 	})
 
 	t.Run("end too long", func(t *testing.T) {
-		_, err := ParseModifyFileArgs(`{"path": "x.go", "changes": [{"start": ["a"], "end": ["1","2","3","4","5"], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": [{"start": ["a"], "end": ["1","2","3","4","5","6","7","8","9","10","11"], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for end too long")
 		}
 	})
 
 	t.Run("invalid json", func(t *testing.T) {
-		_, err := ParseModifyFileArgs(`not json`)
+		_, err := ParseAnchoredEditArgs(`not json`)
 		if err == nil {
 			t.Error("expected error for invalid json")
 		}
@@ -258,6 +262,16 @@ func TestParseEditFileArgs(t *testing.T) {
 		}
 	})
 
+	t.Run("with file_id", func(t *testing.T) {
+		args, err := ParseEditFileArgs(`{"path": "main.go", "file_id": "abc123", "old_string": "hello", "new_string": "world"}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if args.FileID != "abc123" {
+			t.Errorf("FileID = %q, want %q", args.FileID, "abc123")
+		}
+	})
+
 	t.Run("missing path", func(t *testing.T) {
 		_, err := ParseEditFileArgs(`{"old_string": "a", "new_string": "b"}`)
 		if err == nil {
@@ -290,12 +304,55 @@ func TestParseEditFileArgs(t *testing.T) {
 	})
 }
 
+func TestParseEditFileMultiArgs(t *testing.T) {
+	t.Run("valid args with file_id", func(t *testing.T) {
+		args, err := ParseEditFileMultiArgs(`{
+			"edits": [
+				{
+					"path": "main.go",
+					"file_id": "abc123",
+					"old_string": "hello",
+					"new_string": "world"
+				},
+				{
+					"path": "main.go",
+					"old_string": "foo",
+					"new_string": "bar"
+				}
+			]
+		}`)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(args.Edits) != 2 {
+			t.Fatalf("len(Edits) = %d, want 2", len(args.Edits))
+		}
+		if args.Edits[0].FileID != "abc123" {
+			t.Errorf("Edits[0].FileID = %q, want %q", args.Edits[0].FileID, "abc123")
+		}
+	})
+
+	t.Run("all no-op edits", func(t *testing.T) {
+		_, err := ParseEditFileMultiArgs(`{
+			"edits": [
+				{"path": "main.go", "old_string": "same", "new_string": "same"}
+			]
+		}`)
+		if err == nil {
+			t.Error("expected error for all no-op edits")
+		}
+	})
+}
+
 func TestNewClient(t *testing.T) {
-	client := NewClient("https://api.example.com/v1/", "sk-test", false, true)
+	client := NewClient("https://api.example.com/v1/", "sk-test", false, true, true)
 	if client.baseURL != "https://api.example.com/v1" {
 		t.Errorf("baseURL = %q, want trailing slash stripped", client.baseURL)
 	}
 	if client.apiKey != "sk-test" {
 		t.Errorf("apiKey = %q, want %q", client.apiKey, "sk-test")
+	}
+	if !client.explicitCacheKey {
+		t.Error("explicitCacheKey = false, want true")
 	}
 }

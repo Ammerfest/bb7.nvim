@@ -36,9 +36,6 @@ var version string
 //go:embed write_file_prompt.txt
 var writeFilePrompt string
 
-//go:embed modify_file_prompt.txt
-var modifyFilePrompt string
-
 //go:embed edit_file_sr_prompt.txt
 var editFileSRPrompt string
 
@@ -214,7 +211,7 @@ func ensureConfig() error {
 	}
 
 	appConfig = cfg
-	llmClient = llm.NewClient(cfg.BaseURL, cfg.APIKey, *cfg.AllowTraining, *cfg.AllowDataRetention)
+	llmClient = llm.NewClient(cfg.BaseURL, cfg.APIKey, *cfg.AllowTraining, *cfg.AllowDataRetention, *cfg.ExplicitCacheKey)
 	return nil
 }
 
@@ -282,21 +279,63 @@ func hasActiveStream() bool {
 	return activeStream.requestID != ""
 }
 
-// resolveFileBase returns the base content for a modify_file call.
+// resolveFileBase returns the base content for an edit call.
 // It checks pending writes first (for files written earlier in the same
 // response), then output, then context. Must be called with stateMu held
 // (for output/context access).
-func resolveFileBase(path string, pendingWrites map[string]string) (string, string) {
+func resolveFileBase(path string, pendingWrites map[string]string) (string, string, string) {
 	if content, ok := pendingWrites[path]; ok {
-		return content, "pending"
+		return content, "pending", state.HashFileVersion(path, content)
 	}
 	if content, err := appState.GetOutputFile(path); err == nil {
-		return content, "output"
+		return content, "output", state.HashFileVersion(path, content)
 	}
 	if content, err := appState.GetContextFile(path); err == nil {
-		return content, "context"
+		return content, "context", state.HashFileVersion(path, content)
 	}
-	return "", ""
+	return "", "", ""
+}
+
+func validateFileID(path, requestedID, baseID, baseSource string) string {
+	if requestedID == "" {
+		return ""
+	}
+	if baseID == "" {
+		return fmt.Sprintf("file_id check failed for %s: no base file available", path)
+	}
+	if requestedID != baseID {
+		return fmt.Sprintf("file_id mismatch: got %s, expected %s (base=%s). Use the writable @file id for this path.", requestedID, baseID, baseSource)
+	}
+	return ""
+}
+
+// appendAssistantWriteParts appends one AssistantWriteFile context_event per output file.
+// Must be called with stateMu held.
+func appendAssistantWriteParts(parts []state.MessagePart, outputFiles []string, pendingWrites map[string]string) []state.MessagePart {
+	for _, path := range outputFiles {
+		content, ok := pendingWrites[path]
+		if !ok {
+			continue
+		}
+		cf := appState.FindContextFile(path)
+		readOnly := false
+		external := false
+		if cf != nil {
+			readOnly = cf.ReadOnly
+			external = cf.External
+		}
+		isNew := cf == nil
+		parts = append(parts, state.MessagePart{
+			Type:     "context_event",
+			Action:   "AssistantWriteFile",
+			Path:     path,
+			ReadOnly: &readOnly,
+			External: &external,
+			Version:  state.HashFileVersion(path, content),
+			Added:    isNew,
+		})
+	}
+	return parts
 }
 
 func setTerminalStreamError(streamErr *string, msg string, cancel context.CancelFunc) {
@@ -995,9 +1034,9 @@ func handleGetModels(reqID string) {
 		modelList = append(modelList, map[string]any{
 			"id":                    m.ID,
 			"name":                  m.Name,
-			"description":          m.Description,
-			"created":              m.Created,
-			"expiration_date":      m.ExpirationDate,
+			"description":           m.Description,
+			"created":               m.Created,
+			"expiration_date":       m.ExpirationDate,
 			"context_length":        m.ContextLength,
 			"max_completion_tokens": m.TopProvider.MaxCompletionTokens,
 			"supports_reasoning":    supportsReasoning,
@@ -1084,6 +1123,7 @@ func handleSend(reqID string, req map[string]any) {
 	var body string
 	var err error
 	var activeChatID string
+	var requestCacheKey string
 	stateMu.Lock()
 	if appState.ActiveChat == nil {
 		stateMu.Unlock()
@@ -1120,6 +1160,9 @@ func handleSend(reqID string, req map[string]any) {
 		return
 	}
 	activeChatID = appState.ActiveChat.ID
+	if appConfig.ExplicitCacheKey != nil && *appConfig.ExplicitCacheKey {
+		requestCacheKey = "bb7:" + activeChatID + ":" + model
+	}
 	stateMu.Unlock()
 
 	// Track response
@@ -1136,7 +1179,7 @@ func handleSend(reqID string, req map[string]any) {
 		Args string // raw JSON from LLM
 	}
 	var fileToolLogs []fileToolLog
-	var diffErrors []string // diff failures (LLM errors, not system errors)
+	var diffErrors []string                  // diff failures (LLM errors, not system errors)
 	pendingWrites := make(map[string]string) // buffered file writes (committed on success)
 	seenOutputPaths := make(map[string]bool)
 	duplicatePathDetected := false
@@ -1193,7 +1236,7 @@ func handleSend(reqID string, req map[string]any) {
 	// Stream response
 	log.Info("Starting LLM stream for model: %s (diff_mode: %s)", model, diffMode)
 	streamStart := time.Now()
-	err = llmClient.ChatStream(ctx, model, fullSystemPrompt, messages, reasoningConfig, diffMode, func(event llm.StreamEvent) {
+	err = llmClient.ChatStream(ctx, model, fullSystemPrompt, messages, reasoningConfig, diffMode, requestCacheKey, func(event llm.StreamEvent) {
 		switch event.Type {
 		case "content":
 			// Regular text content - stream to UI and accumulate
@@ -1261,12 +1304,13 @@ func handleSend(reqID string, req map[string]any) {
 					}
 
 					// Apply each edit sequentially
+					validatedPathBase := make(map[string]bool)
 					for i, edit := range args.Edits {
 						fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "edit_file", Path: edit.Path, Args: event.ToolCall.Function.Arguments})
 
 						// Resolve base content
 						stateMu.Lock()
-						base, baseSource := resolveFileBase(edit.Path, pendingWrites)
+						base, baseSource, baseID := resolveFileBase(edit.Path, pendingWrites)
 						stateMu.Unlock()
 						if baseSource == "" {
 							msg := fmt.Sprintf("edit_file: %s not in context or output", edit.Path)
@@ -1274,10 +1318,19 @@ func handleSend(reqID string, req map[string]any) {
 							setTerminalStreamError(&streamErr, msg, cancel)
 							return
 						}
+						if !validatedPathBase[edit.Path] {
+							if idErr := validateFileID(edit.Path, edit.FileID, baseID, baseSource); idErr != "" {
+								detail := fmt.Sprintf("edit_file edit %d (%s): %s", i, edit.Path, idErr)
+								log.Info(detail)
+								diffErrors = append(diffErrors, detail)
+								return
+							}
+							validatedPathBase[edit.Path] = true
+						}
 
 						newContent, err := diff.Replace(base, edit.OldString, edit.NewString, edit.ReplaceAll)
 						if err != nil {
-							detail := fmt.Sprintf("edit_file edit %d (%s): %v", i, edit.Path, err)
+							detail := fmt.Sprintf("edit_file edit %d (%s, base=%s): %v", i, edit.Path, baseSource, err)
 							log.Info(detail)
 							diffErrors = append(diffErrors, detail)
 							return
@@ -1306,7 +1359,7 @@ func handleSend(reqID string, req map[string]any) {
 
 					// Resolve base content: pending writes first, then output, then context
 					stateMu.Lock()
-					base, baseSource := resolveFileBase(args.Path, pendingWrites)
+					base, baseSource, baseID := resolveFileBase(args.Path, pendingWrites)
 					stateMu.Unlock()
 					if baseSource == "" {
 						msg := fmt.Sprintf("edit_file: %s not in context or output", args.Path)
@@ -1314,10 +1367,16 @@ func handleSend(reqID string, req map[string]any) {
 						setTerminalStreamError(&streamErr, msg, cancel)
 						return
 					}
+					if idErr := validateFileID(args.Path, args.FileID, baseID, baseSource); idErr != "" {
+						detail := fmt.Sprintf("edit_file %s: %s", args.Path, idErr)
+						log.Info(detail)
+						diffErrors = append(diffErrors, detail)
+						return
+					}
 
 					newContent, err := diff.Replace(base, args.OldString, args.NewString, args.ReplaceAll)
 					if err != nil {
-						detail := fmt.Sprintf("edit_file %s: %v", args.Path, err)
+						detail := fmt.Sprintf("edit_file %s (base=%s): %v", args.Path, baseSource, err)
 						log.Info(detail)
 						diffErrors = append(diffErrors, detail)
 						return
@@ -1337,7 +1396,7 @@ func handleSend(reqID string, req map[string]any) {
 					respond(reqID, map[string]any{"type": "chunk", "content": "\n[Assistant modified: " + args.Path + "]\n"})
 
 				case "anchored":
-					args, err := llm.ParseModifyFileArgs(event.ToolCall.Function.Arguments)
+					args, err := llm.ParseAnchoredEditArgs(event.ToolCall.Function.Arguments)
 					if err != nil {
 						log.Info("Failed to parse edit_file args: %v", err)
 						setTerminalStreamError(&streamErr, fmt.Sprintf("edit_file parse error: %v", err), cancel)
@@ -1356,7 +1415,7 @@ func handleSend(reqID string, req map[string]any) {
 
 					// Resolve base content: pending writes first, then output, then context
 					stateMu.Lock()
-					base, baseSource := resolveFileBase(args.Path, pendingWrites)
+					base, baseSource, baseID := resolveFileBase(args.Path, pendingWrites)
 					stateMu.Unlock()
 					if baseSource == "" {
 						msg := fmt.Sprintf("edit_file: %s not in context or output", args.Path)
@@ -1364,8 +1423,14 @@ func handleSend(reqID string, req map[string]any) {
 						setTerminalStreamError(&streamErr, msg, cancel)
 						return
 					}
+					if idErr := validateFileID(args.Path, args.FileID, baseID, baseSource); idErr != "" {
+						detail := fmt.Sprintf("edit_file %s: %s", args.Path, idErr)
+						log.Info(detail)
+						diffErrors = append(diffErrors, detail)
+						return
+					}
 
-					// Convert llm.ModifyFileChange → diff.Change
+					// Convert llm.AnchoredEditChange → diff.Change
 					diffChanges := make([]diff.Change, len(args.Changes))
 					for i, c := range args.Changes {
 						diffChanges[i] = diff.Change{
@@ -1397,63 +1462,6 @@ func handleSend(reqID string, req map[string]any) {
 					respond(reqID, map[string]any{"type": "chunk", "content": "\n[Assistant modified: " + args.Path + "]\n"})
 				}
 
-			case "modify_file":
-				// Legacy: only used by benchmark (cmd/bench)
-				args, err := llm.ParseModifyFileArgs(event.ToolCall.Function.Arguments)
-				if err != nil {
-					log.Info("Failed to parse modify_file args: %v", err)
-					setTerminalStreamError(&streamErr, fmt.Sprintf("modify_file parse error: %v", err), cancel)
-					return
-				}
-				fileToolLogs = append(fileToolLogs, fileToolLog{Tool: "modify_file", Path: args.Path, Args: event.ToolCall.Function.Arguments})
-				if seenOutputPaths[args.Path] {
-					log.Info("Duplicate file output for path in single response: %s", args.Path)
-					if !duplicatePathDetected {
-						setTerminalStreamError(&streamErr, "Duplicate file output for path in single response: "+args.Path, cancel)
-						duplicatePathDetected = true
-					}
-					return
-				}
-				seenOutputPaths[args.Path] = true
-
-				stateMu.Lock()
-				base, baseSource := resolveFileBase(args.Path, pendingWrites)
-				stateMu.Unlock()
-				if baseSource == "" {
-					msg := fmt.Sprintf("modify_file: %s not in context or output", args.Path)
-					log.Info(msg)
-					setTerminalStreamError(&streamErr, msg, cancel)
-					return
-				}
-
-				diffChanges := make([]diff.Change, len(args.Changes))
-				for i, c := range args.Changes {
-					diffChanges[i] = diff.Change{
-						Start:   c.Start,
-						End:     c.End,
-						Content: c.Content,
-					}
-				}
-
-				applyResult, err := diff.Apply(diff.SplitLines(base), diffChanges)
-				if err != nil {
-					detail := fmt.Sprintf("modify_file %s: %v", args.Path, err)
-					log.Info(detail)
-					diffErrors = append(diffErrors, detail)
-					return
-				}
-
-				if len(applyResult.DroppedNoOp) > 0 {
-					log.Info("modify_file %s: dropped %d no-op change(s): indices %v", args.Path, len(applyResult.DroppedNoOp), applyResult.DroppedNoOp)
-				}
-
-				newContent := diff.JoinLines(applyResult.Lines)
-				writeCalls = append(writeCalls, llm.WriteFileArgs{Path: args.Path, Content: newContent})
-				pendingWrites[args.Path] = newContent
-
-				log.Info("Assistant modified (diff): %s (%d bytes, base=%s)", args.Path, len(newContent), baseSource)
-				outputFiles = append(outputFiles, args.Path)
-				respond(reqID, map[string]any{"type": "chunk", "content": "\n[Assistant modified: " + args.Path + "]\n"})
 			}
 
 		case "done":
@@ -1566,25 +1574,7 @@ func handleSend(reqID string, req map[string]any) {
 							log.Error("Failed to commit file %s on cancel: %v", path, writeErr)
 						}
 					}
-					for _, wc := range writeCalls {
-						cf := appState.FindContextFile(wc.Path)
-						readOnly := false
-						external := false
-						if cf != nil {
-							readOnly = cf.ReadOnly
-							external = cf.External
-						}
-						isNew := cf == nil
-						cancelParts = append(cancelParts, state.MessagePart{
-							Type:     "context_event",
-							Action:   "AssistantWriteFile",
-							Path:     wc.Path,
-							ReadOnly: &readOnly,
-							External: &external,
-							Version:  state.HashFileVersion(wc.Path, wc.Content),
-							Added:    isNew,
-						})
-					}
+					cancelParts = appendAssistantWriteParts(cancelParts, outputFiles, pendingWrites)
 				} else {
 					cancelOutputFiles = nil
 				}
@@ -1672,7 +1662,7 @@ func handleSend(reqID string, req map[string]any) {
 
 		// Send diff_error response
 		diffErrResp := map[string]any{
-			"type":                "diff_error",
+			"type":       "diff_error",
 			"errors":     diffErrors,
 			"tool_calls": toolCallEntries,
 		}
@@ -1715,25 +1705,7 @@ func handleSend(reqID string, req map[string]any) {
 
 	// Add file write events as context_event parts (at the end, after thinking/text)
 	stateMu.Lock()
-	for _, wc := range writeCalls {
-		cf := appState.FindContextFile(wc.Path)
-		readOnly := false
-		external := false
-		if cf != nil {
-			readOnly = cf.ReadOnly
-			external = cf.External
-		}
-		isNew := cf == nil
-		parts = append(parts, state.MessagePart{
-			Type:     "context_event",
-			Action:   "AssistantWriteFile",
-			Path:     wc.Path,
-			ReadOnly: &readOnly,
-			External: &external,
-			Version:  state.HashFileVersion(wc.Path, wc.Content),
-			Added:    isNew,
-		})
-	}
+	parts = appendAssistantWriteParts(parts, outputFiles, pendingWrites)
 	stateMu.Unlock()
 
 	// Convert usage for storage
@@ -2154,8 +2126,28 @@ func parseRetryContext(rc map[string]any) *retryContextData {
 func formatRetryContext(rc *retryContextData) string {
 	var b strings.Builder
 	b.WriteString("Your previous edit_file calls failed. Errors:\n")
+	oldStringNotFound := false
+	fileIDMismatch := false
 	for _, e := range rc.Errors {
 		b.WriteString("- " + e + "\n")
+		if strings.Contains(e, "old_string not found in file") {
+			oldStringNotFound = true
+		}
+		if strings.Contains(e, "file_id mismatch") {
+			fileIDMismatch = true
+		}
+	}
+	if oldStringNotFound {
+		b.WriteString("\nHow to fix old_string not found:\n")
+		b.WriteString("- Match old_string against the current writable file content exactly.\n")
+		b.WriteString("- For retries, use the `@file ... mode=rw status=pending_output` version as the base, not the read-only original.\n")
+		b.WriteString("- If an edit is already present in writable content, omit it (do not reapply no-op edits).\n")
+		b.WriteString("- Include enough surrounding context so each old_string matches uniquely.\n")
+	}
+	if fileIDMismatch {
+		b.WriteString("\nHow to fix file_id mismatch:\n")
+		b.WriteString("- Use the `id=` from the current writable `@file` block (`mode=rw`) for that path.\n")
+		b.WriteString("- If both original and pending output share a path, target the writable pending-output version.\n")
 	}
 	b.WriteString("\nYour previous tool calls:\n")
 	for _, tc := range rc.ToolCalls {

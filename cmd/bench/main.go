@@ -15,8 +15,8 @@ import (
 	"github.com/youruser/bb7/internal/llm"
 )
 
-//go:embed modify_file_prompt.txt
-var modifyFilePrompt string
+//go:embed edit_file_anchor_prompt.txt
+var editFileAnchorPrompt string
 
 //go:embed edit_file_sr_prompt.txt
 var editFileSRPrompt string
@@ -274,25 +274,25 @@ type testResult struct {
 	passed    bool
 	elapsed   time.Duration
 	cost      float64
-	err       string       // error details for failures
+	err       string          // error details for failures
 	toolCalls []*llm.ToolCall // raw tool calls for logging
 }
 
 // logEntry is the JSON structure written to log files.
 type logEntry struct {
-	Model     string    `json:"model"`
-	Mode      string    `json:"mode"`
-	Test      string    `json:"test"`
-	Passed    bool      `json:"passed"`
-	Error     string    `json:"error,omitempty"`
-	Elapsed   float64   `json:"elapsed_seconds"`
-	Cost      float64   `json:"cost"`
+	Model     string            `json:"model"`
+	Mode      string            `json:"mode"`
+	Test      string            `json:"test"`
+	Passed    bool              `json:"passed"`
+	Error     string            `json:"error,omitempty"`
+	Elapsed   float64           `json:"elapsed_seconds"`
+	Cost      float64           `json:"cost"`
 	ToolCalls []json.RawMessage `json:"tool_calls"`
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: go run ./cmd/bench <model-id> [--mode=sr|anchored] [--test=N]\n")
+		fmt.Fprintf(os.Stderr, "usage: go run ./cmd/bench <model-id> [--mode=sr|sr_multi|anchored] [--test=N]\n")
 		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4\n")
 		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4 --mode=sr\n")
 		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4 --mode=sr --test=2\n")
@@ -321,7 +321,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, *cfg.AllowTraining, *cfg.AllowDataRetention)
+	client := llm.NewClient(cfg.BaseURL, cfg.APIKey, *cfg.AllowTraining, *cfg.AllowDataRetention, *cfg.ExplicitCacheKey)
 
 	// Create log directory
 	modelSlug := strings.ReplaceAll(model, "/", "_")
@@ -436,7 +436,7 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 		systemPrompt = editFileSRMultiPrompt
 		diffMode = "search_replace_multi"
 	default:
-		systemPrompt = modifyFilePrompt
+		systemPrompt = editFileAnchorPrompt
 		diffMode = "anchored"
 	}
 
@@ -448,7 +448,7 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 	var usage *llm.Usage
 
 	start := time.Now()
-	err := client.ChatStream(ctx, model, systemPrompt, messages, nil, diffMode, func(event llm.StreamEvent) {
+	err := client.ChatStream(ctx, model, systemPrompt, messages, nil, diffMode, "", func(event llm.StreamEvent) {
 		switch event.Type {
 		case "tool_call":
 			toolCalls = append(toolCalls, event.ToolCall)
@@ -579,17 +579,17 @@ func applySRMultiToolCalls(result testResult, toolCalls []*llm.ToolCall, files, 
 	return compareFiles(result, files, expected)
 }
 
-// applyAnchoredToolCall processes anchored modify_file/edit_file tool calls.
+// applyAnchoredToolCall processes anchored edit_file tool calls.
 func applyAnchoredToolCall(result testResult, toolCalls []*llm.ToolCall, files, expected map[string]string) testResult {
-	// Find modify_file or edit_file tool calls
-	var modifyCalls []*llm.ToolCall
+	// Find edit_file tool calls
+	var editCalls []*llm.ToolCall
 	for _, tc := range toolCalls {
-		if tc.Function.Name == "modify_file" || tc.Function.Name == "edit_file" {
-			modifyCalls = append(modifyCalls, tc)
+		if tc.Function.Name == "edit_file" {
+			editCalls = append(editCalls, tc)
 		}
 	}
 
-	if len(modifyCalls) == 0 {
+	if len(editCalls) == 0 {
 		names := make([]string, len(toolCalls))
 		for i, tc := range toolCalls {
 			names[i] = tc.Function.Name
@@ -597,13 +597,13 @@ func applyAnchoredToolCall(result testResult, toolCalls []*llm.ToolCall, files, 
 		if len(names) == 0 {
 			result.err = "no tool calls returned"
 		} else {
-			result.err = fmt.Sprintf("no modify_file call (got: %s)", strings.Join(names, ", "))
+			result.err = fmt.Sprintf("no edit_file call (got: %s)", strings.Join(names, ", "))
 		}
 		return result
 	}
 
-	for ci, modifyCall := range modifyCalls {
-		args, err := llm.ParseModifyFileArgs(modifyCall.Function.Arguments)
+	for ci, editCall := range editCalls {
+		args, err := llm.ParseAnchoredEditArgs(editCall.Function.Arguments)
 		if err != nil {
 			result.err = fmt.Sprintf("parse args[%d]: %v", ci, err)
 			return result
@@ -611,7 +611,7 @@ func applyAnchoredToolCall(result testResult, toolCalls []*llm.ToolCall, files, 
 
 		content, ok := files[args.Path]
 		if !ok {
-			result.err = fmt.Sprintf("modify_file[%d]: unknown file %q", ci, args.Path)
+			result.err = fmt.Sprintf("edit_file[%d]: unknown file %q", ci, args.Path)
 			return result
 		}
 

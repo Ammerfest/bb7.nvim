@@ -72,7 +72,8 @@ OpenRouter routes requests to different providers for the same model. These prov
 {
   "api_key": "sk-or-...",
   "allow_training": false,
-  "allow_data_retention": true
+  "allow_data_retention": true,
+  "explicit_cache_key": false
 }
 ```
 
@@ -86,6 +87,21 @@ OpenRouter routes requests to different providers for the same model. These prov
 | `false` | `false` | No training, no retention (ZDR only) |
 | `true` | `true` | No restrictions (OpenRouter default routing) |
 | `true` | `false` | No retention (ZDR only) |
+
+## Prompt Cache Key
+
+BB-7 can optionally send OpenRouter's `prompt_cache_key` with chat requests:
+
+```json
+{
+  "api_key": "sk-or-...",
+  "explicit_cache_key": true
+}
+```
+
+**`explicit_cache_key`** (default: `false`) — When `true`, BB-7 sends a stable per-chat/per-model key (`bb7:<chat-id>:<model>`) to help providers reuse prompt-cache state across requests in the same chat.
+
+This setting is opt-in for low risk. If your provider or gateway does not support `prompt_cache_key`, keep it disabled.
 
 ## Chat Styling
 

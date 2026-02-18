@@ -200,7 +200,8 @@ Backend statuses (`M`, `A`, `!A`, `S`) are returned by `get_file_statuses`. Fron
 - Prompt caching is provider-specific and confusing across OpenRouter models, so we do not depend on it for correctness.
 - For now, we rely on implicit caching where available and keep prompt assembly stable.
 - Cache-friendly behavior: keep read-only file content ordered deterministically and early in the prompt so repeated requests reuse the same prefix.
-- Explicit cache_control breakpoints are deferred until we have a clear, provider-verified approach.
+- Optional explicit cache key support is available via config (`"explicit_cache_key": true`), which sends `prompt_cache_key` for chat requests.
+- Explicit cache-control breakpoints inside message content are still deferred until we have a clear, provider-verified approach.
 
 ## LLM Response Handling
 
@@ -260,7 +261,8 @@ Implemented:
   "api_key": "sk-or-...",
   "base_url": "https://openrouter.ai/api/v1",
   "default_model": "anthropic/claude-sonnet-4",
-  "title_model": "anthropic/claude-3-haiku"
+  "title_model": "anthropic/claude-3-haiku",
+  "explicit_cache_key": false
 }
 ```
 

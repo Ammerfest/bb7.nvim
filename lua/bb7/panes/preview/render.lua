@@ -7,6 +7,14 @@ local highlight = require('bb7.panes.preview.highlight')
 local syntax = require('bb7.panes.preview.syntax')
 local utils = require('bb7.utils')
 
+local function is_debug_enabled()
+  if vim.env.BB7_DEBUG == '1' then
+    return true
+  end
+  local home = vim.env.HOME or vim.fn.expand('~')
+  return vim.fn.filereadable(home .. '/.bb7/debug') == 1
+end
+
 -- Apply extmarks (virtual text for bars + padding, highlights for text/bg)
 -- Note: text_hl is used for both text foreground AND line background
 local function apply_extmarks(buf)
@@ -1016,15 +1024,34 @@ function M.render()
     if last_usage_msg then
       local usage = last_usage_msg.usage
       local usage_parts = {}
+      local function pct(numerator, denominator)
+        if not denominator or denominator <= 0 then
+          return '0%'
+        end
+        return string.format('%.0f%%', (numerator / denominator) * 100)
+      end
       -- Include duration only for the chat where the stream just completed
       if shared.persistent.last_duration
         and shared.persistent.last_stream_chat_id
         and shared.state.chat.id == shared.persistent.last_stream_chat_id then
         table.insert(usage_parts, format.format_duration(shared.persistent.last_duration))
       end
-      local input_str = format.format_tokens_short(usage.prompt_tokens or 0)
-      local output_str = format.format_tokens_short(usage.completion_tokens or 0)
+      local prompt_tokens = usage.prompt_tokens or 0
+      local completion_tokens = usage.completion_tokens or 0
+      local cached_tokens = usage.cached_tokens or 0
+      local total_tokens = usage.total_tokens or (prompt_tokens + completion_tokens)
+
+      local input_str = format.format_tokens_short(prompt_tokens)
+      local output_str = format.format_tokens_short(completion_tokens)
       table.insert(usage_parts, input_str .. ' in / ' .. output_str .. ' out')
+      if is_debug_enabled() then
+        local cached_str = format.format_tokens_short(cached_tokens)
+        table.insert(usage_parts, string.format(
+          '%s cached (%s in, %s total)',
+          cached_str,
+          pct(cached_tokens, prompt_tokens),
+          pct(cached_tokens, total_tokens)))
+      end
       if usage.cost and usage.cost > 0 then
         table.insert(usage_parts, string.format('$%.3f', usage.cost))
       end

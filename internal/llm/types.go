@@ -13,12 +13,13 @@ type ProviderPreferences struct {
 }
 
 type ChatRequest struct {
-	Model     string               `json:"model"`
-	Messages  []Message            `json:"messages"`
-	Tools     []Tool               `json:"tools,omitempty"`
-	Stream    bool                 `json:"stream"`
-	Reasoning *ReasoningConfig     `json:"reasoning,omitempty"`
-	Provider  *ProviderPreferences `json:"provider,omitempty"`
+	Model          string               `json:"model"`
+	Messages       []Message            `json:"messages"`
+	Tools          []Tool               `json:"tools,omitempty"`
+	Stream         bool                 `json:"stream"`
+	Reasoning      *ReasoningConfig     `json:"reasoning,omitempty"`
+	Provider       *ProviderPreferences `json:"provider,omitempty"`
+	PromptCacheKey string               `json:"prompt_cache_key,omitempty"`
 }
 
 type Message struct {
@@ -62,24 +63,31 @@ type ChatResponse struct {
 
 // Usage contains token usage and cost information from the API response.
 type Usage struct {
-	PromptTokens     int     `json:"prompt_tokens"`
-	CompletionTokens int     `json:"completion_tokens"`
-	TotalTokens      int     `json:"total_tokens"`
-	CachedTokens     int     `json:"cached_tokens,omitempty"`
-	Cost             float64 `json:"cost,omitempty"` // In USD, if provided by API
+	PromptTokens        int                  `json:"prompt_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
+	CachedTokens        int                  `json:"cached_tokens,omitempty"` // legacy flat field
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	Cost                float64              `json:"cost,omitempty"` // In USD, if provided by API
+}
+
+// PromptTokensDetails contains cache-specific token details for prompt tokens.
+type PromptTokensDetails struct {
+	CachedTokens     int `json:"cached_tokens,omitempty"`
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 type Choice struct {
-	Index        int     `json:"index"`
-	Delta        *Delta  `json:"delta,omitempty"`
-	Message      *Delta  `json:"message,omitempty"`
-	FinishReason string  `json:"finish_reason,omitempty"`
+	Index        int    `json:"index"`
+	Delta        *Delta `json:"delta,omitempty"`
+	Message      *Delta `json:"message,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 type Delta struct {
 	Role      string     `json:"role,omitempty"`
 	Content   string     `json:"content,omitempty"`
-	Reasoning string     `json:"reasoning,omitempty"`          // For thinking/reasoning models
+	Reasoning string     `json:"reasoning,omitempty"` // For thinking/reasoning models
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -105,21 +113,23 @@ type WriteFileArgs struct {
 	Content string `json:"content"`
 }
 
-// ModifyFileChange represents a single change within a modify_file tool call.
-type ModifyFileChange struct {
+// AnchoredEditChange represents a single change within an anchored edit_file tool call.
+type AnchoredEditChange struct {
 	Start   []string `json:"start"`
 	End     []string `json:"end,omitempty"`
 	Content []string `json:"content"`
 }
 
-// ModifyFileArgs is the parsed arguments for the modify_file tool.
-type ModifyFileArgs struct {
-	Path    string             `json:"path"`
-	Changes []ModifyFileChange `json:"changes"`
+// AnchoredEditArgs is the parsed arguments for anchored edit_file calls.
+type AnchoredEditArgs struct {
+	Path    string               `json:"path"`
+	FileID  string               `json:"file_id,omitempty"`
+	Changes []AnchoredEditChange `json:"changes"`
 }
 
 // EditFileArgs is the parsed arguments for the edit_file tool (search/replace mode).
 type EditFileArgs struct {
+	FileID     string `json:"file_id,omitempty"`
 	Path       string `json:"path"`
 	OldString  string `json:"old_string"`
 	NewString  string `json:"new_string"`
@@ -160,12 +170,12 @@ type ModelInfo struct {
 
 // ModelPricing contains per-token prices in USD.
 type ModelPricing struct {
-	Prompt            string  `json:"prompt"`              // Price per input token
-	Completion        string  `json:"completion"`          // Price per output token
-	InputCacheRead    string  `json:"input_cache_read"`    // Price per cached input token
-	InputCacheWrite   string  `json:"input_cache_write"`   // Price per cache write token
-	InternalReasoning string  `json:"internal_reasoning"`  // Price per reasoning token
-	Discount          float64 `json:"discount"`            // Discount factor (0-1)
+	Prompt            string  `json:"prompt"`             // Price per input token
+	Completion        string  `json:"completion"`         // Price per output token
+	InputCacheRead    string  `json:"input_cache_read"`   // Price per cached input token
+	InputCacheWrite   string  `json:"input_cache_write"`  // Price per cache write token
+	InternalReasoning string  `json:"internal_reasoning"` // Price per reasoning token
+	Discount          float64 `json:"discount"`           // Discount factor (0-1)
 }
 
 // ModelsResponse from /api/v1/models endpoint.

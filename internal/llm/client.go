@@ -30,16 +30,18 @@ type Client struct {
 	httpClient         *http.Client
 	allowTraining      bool
 	allowDataRetention bool
+	explicitCacheKey   bool
 }
 
 // NewClient creates a new LLM client.
-func NewClient(baseURL, apiKey string, allowTraining, allowDataRetention bool) *Client {
+func NewClient(baseURL, apiKey string, allowTraining, allowDataRetention, explicitCacheKey bool) *Client {
 	return &Client{
 		baseURL:            strings.TrimSuffix(baseURL, "/"),
 		apiKey:             apiKey,
 		httpClient:         &http.Client{},
 		allowTraining:      allowTraining,
 		allowDataRetention: allowDataRetention,
+		explicitCacheKey:   explicitCacheKey,
 	}
 }
 
@@ -66,7 +68,8 @@ type StreamCallback func(event StreamEvent)
 // ChatStream sends a chat request and streams the response.
 // The callback is called for each event (content chunks, tool calls, completion).
 // If reasoning is non-nil, extended thinking is enabled with the specified effort level.
-func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, diffMode string, callback StreamCallback) error {
+// cacheKey is optional and is sent as prompt_cache_key when explicit cache keys are enabled.
+func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, diffMode, cacheKey string, callback StreamCallback) error {
 	// Prepend system message
 	allMessages := make([]Message, 0, len(messages)+1)
 	allMessages = append(allMessages, Message{
@@ -76,12 +79,16 @@ func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, mes
 	allMessages = append(allMessages, messages...)
 
 	reqBody := ChatRequest{
-		Model:     model,
-		Messages:  allMessages,
-		Tools:     DefaultTools(diffMode),
-		Stream:    true,
-		Reasoning: reasoning,
-		Provider:  c.providerPreferences(),
+		Model:          model,
+		Messages:       allMessages,
+		Tools:          DefaultTools(diffMode),
+		Stream:         true,
+		Reasoning:      reasoning,
+		Provider:       c.providerPreferences(),
+		PromptCacheKey: "",
+	}
+	if c.explicitCacheKey && cacheKey != "" {
+		reqBody.PromptCacheKey = cacheKey
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -174,6 +181,9 @@ func (c *Client) processStream(ctx context.Context, reader io.Reader, callback S
 
 		// Capture usage if present (typically in the final chunk)
 		if resp.Usage != nil {
+			if resp.Usage.CachedTokens == 0 && resp.Usage.PromptTokensDetails != nil {
+				resp.Usage.CachedTokens = resp.Usage.PromptTokensDetails.CachedTokens
+			}
 			lastUsage = resp.Usage
 			log.Debug("Captured usage: prompt=%d, completion=%d, cached=%d",
 				resp.Usage.PromptTokens, resp.Usage.CompletionTokens, resp.Usage.CachedTokens)
@@ -269,28 +279,28 @@ func ParseWriteFileArgs(argsJSON string) (*WriteFileArgs, error) {
 	return &args, nil
 }
 
-// ParseModifyFileArgs parses the arguments JSON for a modify_file tool call.
-func ParseModifyFileArgs(argsJSON string) (*ModifyFileArgs, error) {
-	var args ModifyFileArgs
+// ParseAnchoredEditArgs parses the arguments JSON for an anchored edit_file tool call.
+func ParseAnchoredEditArgs(argsJSON string) (*AnchoredEditArgs, error) {
+	var args AnchoredEditArgs
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return nil, err
 	}
 	if args.Path == "" {
-		return nil, errors.New("modify_file: missing path")
+		return nil, errors.New("edit_file: missing path")
 	}
 	if len(args.Changes) == 0 {
-		return nil, errors.New("modify_file: no changes")
+		return nil, errors.New("edit_file: no changes")
 	}
 	for i := range args.Changes {
 		c := &args.Changes[i]
 		if len(c.Start) == 0 {
-			return nil, fmt.Errorf("modify_file: change %d: empty start", i)
+			return nil, fmt.Errorf("edit_file: change %d: empty start", i)
 		}
 		if len(c.Start) > 10 {
-			return nil, fmt.Errorf("modify_file: change %d: start exceeds 10 lines", i)
+			return nil, fmt.Errorf("edit_file: change %d: start exceeds 10 lines", i)
 		}
 		if len(c.End) > 10 {
-			return nil, fmt.Errorf("modify_file: change %d: end exceeds 10 lines", i)
+			return nil, fmt.Errorf("edit_file: change %d: end exceeds 10 lines", i)
 		}
 		// JSON null or missing content → normalize to empty slice
 		if c.Content == nil {

@@ -16,12 +16,15 @@ Rules for all file tool calls:
 
 ### Definitions
 
-`edit_file(path, changes)` applies a list of changes to an existing file. Each change locates a contiguous region of lines in the file and replaces it entirely.
+`edit_file(path, changes, file_id?)` applies a list of changes to an existing file. Each change locates a contiguous region of lines in the file and replaces it entirely.
 
 A **change** has three fields:
 - `start` (required): Array of 1-4 strings (up to 10 if needed for disambiguation). Must match consecutive lines in the file exactly once.
 - `end` (optional): Array of 1-4 strings (up to 10 if needed). Must match consecutive lines that occur after the `start` match exactly once.
 - `content` (required): Array of strings. The exact, complete replacement for the matched region.
+
+Optional call-level field:
+- `file_id` (string, optional): `id` of the base file version from `@file id=...` (recommended when the same path appears more than once, e.g. original + pending output).
 
 The **region** of a change is:
 - If `end` is omitted: the lines matched by `start`.
@@ -121,6 +124,7 @@ Each anchor must match **exactly once** in the file. A failed tool call wastes t
 ### Guidelines
 
 - **Before adding a change, verify that `content` differs from what is already in the file at that location.** If the lines would be identical after replacement, do not include the change. No-op changes (where `content` reproduces the existing lines unchanged) cause anchor errors and waste tokens. Only include changes that actually modify, insert, or delete code.
+- **Use `file_id` when a path is ambiguous.** If `Files:` or `@file` shows the same `path` more than once (for example `status=original` and `status=pending_output`), target the writable one by setting `file_id` to the writable `id`.
 - Omit `end` for small, localized edits where `start` lines cover the entire region.
 - Use `start` + `end` for larger replacements to avoid reproducing unchanged code.
 - If two changes are close together (within ~5 lines), merge them into one change.
