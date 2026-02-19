@@ -480,6 +480,12 @@ function M.set_spinner_frames(frames)
   end
 end
 
+function M.set_bar_char(char)
+  if char then
+    shared.config.bar_char = char
+  end
+end
+
 -- Scroll the preview window by half-page (viewport scroll, not cursor move)
 function M.scroll_down()
   if not state.win or not vim.api.nvim_win_is_valid(state.win) then

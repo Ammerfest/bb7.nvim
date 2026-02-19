@@ -150,6 +150,7 @@ func (c *Client) processStream(ctx context.Context, reader io.Reader, callback S
 		}
 
 		data := strings.TrimPrefix(line, "data: ")
+		callback(StreamEvent{Type: "raw", Raw: data})
 
 		// Stream end marker
 		if data == "[DONE]" {

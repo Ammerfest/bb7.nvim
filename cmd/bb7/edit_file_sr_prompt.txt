@@ -12,18 +12,19 @@ Rules for all file tool calls:
 - Do not mix tools for the same file. Never use both `edit_file` and `write_file` for the same path in one response.
 - Multiple `edit_file` calls for the same file ARE allowed. Each call sees the result of prior calls.
 - One `write_file` call per file. Do not call `write_file` more than once for the same path in a single response.
+- For `edit_file`, `file_id` is required.
 
 ## edit_file Reference
 
 ### Parameters
 
-`edit_file(path, old_string, new_string, replace_all?, file_id?)`
+`edit_file(path, old_string, new_string, replace_all?, file_id)`
 
 - `path` (string, required): Relative file path of the existing file to modify.
 - `old_string` (string, required): The exact text to find in the file. Must match exactly once (unless `replace_all` is true).
 - `new_string` (string, required): The replacement text. May be empty string to delete the matched text.
 - `replace_all` (boolean, optional, default false): Replace all occurrences of `old_string`.
-- `file_id` (string, optional): `id` of the base file version from `@file id=...` (recommended when the same path appears more than once, e.g. original + pending output).
+- `file_id` (string, required): `id` of the writable base file version from `@file id=...`.
 
 ### Matching
 
@@ -112,7 +113,7 @@ Call 2 — insert B between C and D:
 ### Guidelines
 
 - **One logical edit per call.** Make each `edit_file` call a single, focused change. A task requiring 4 changes needs 4 separate `edit_file` calls. Each call sees the result of prior calls, so later calls must account for earlier changes.
-- **Use `file_id` when a path is ambiguous.** If `Files:` or `@file` shows the same `path` more than once (for example `status=original` and `status=pending_output`), target the writable one by setting `file_id` to the writable `id`.
+- **Always include `file_id`.** Use the `id` from the current writable `@file` block. If `Files:` or `@file` shows the same `path` more than once (for example `status=original` and `status=pending_output`), use the writable `id`.
 - **Include enough context for uniqueness.** If the line you want to change could appear elsewhere in the file, include one or more surrounding lines in `old_string` and reproduce them unchanged in `new_string`.
 - **Preserve blank line separators.** When deleting or moving a block (like a function), include the surrounding blank lines in `old_string` and `new_string` so you don't leave double blank lines behind.
 - **Copy `old_string` exactly from the file.** Include indentation (spaces/tabs) as they appear. Matching is exact.

@@ -187,7 +187,9 @@ Resolution options:
 - Discard LLM output
 - Manually merge via diff
 
-## Benchmark Summary (2026-02-17)
+## Benchmark Summary
+
+### 2026-02-17 Baseline
 
 ### Anchored (experimental)
 
@@ -227,9 +229,21 @@ Main limitation:
 | anthropic/claude-sonnet-4 | 7/7* |
 | openai/gpt-5.2-codex | 7/7* |
 | z-ai/glm-5 | 7/7* |
-| google/gemini-2.5-pro | API issues (intermittent) |
+| google/gemini-2.5-pro | Unstable (provider-side malformed function calls) |
 
 \* Tests 1-6 as suite; test 7 confirmed individually.
+
+### 2026-02-18 Update: Gemini 3 Pro Preview
+
+Command:
+`go run ./cmd/bench google/gemini-3-pro-preview --mode=sr_multi`
+
+Result:
+- `7/7` passed
+- Total cost: `$0.489`
+- Log dir: `cmd/bench/logs/20260218_120036_google_gemini-3-pro-preview_sr_multi/`
+
+Going forward, prefer `google/gemini-3-pro-preview` for BB-7 benchmark and production evaluation. `google/gemini-2.5-pro` is no longer considered reliable for this workflow due to intermittent `MALFORMED_FUNCTION_CALL` provider errors.
 
 ## Matching Pipelines
 

@@ -59,10 +59,15 @@ function M.setup(opts)
     nav_right = config.nav_right,
   })
 
-  -- Pass spinner config to preview pane
+  -- Pass chat_style config to preview pane
   local preview = require('bb7.panes.preview')
-  if config.chat_style and config.chat_style.spinner then
-    preview.set_spinner_frames(config.chat_style.spinner.frames)
+  if config.chat_style then
+    if config.chat_style.spinner then
+      preview.set_spinner_frames(config.chat_style.spinner.frames)
+    end
+    if config.chat_style.bar_char then
+      preview.set_bar_char(config.chat_style.bar_char)
+    end
   end
 
   -- Pass status config

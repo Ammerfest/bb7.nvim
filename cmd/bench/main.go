@@ -13,6 +13,7 @@ import (
 	"github.com/youruser/bb7/internal/config"
 	"github.com/youruser/bb7/internal/diff"
 	"github.com/youruser/bb7/internal/llm"
+	"github.com/youruser/bb7/internal/state"
 )
 
 //go:embed edit_file_anchor_prompt.txt
@@ -270,24 +271,32 @@ Do NOT add new test functions. Only modify existing ` + "`CreateOrder`" + ` call
 }
 
 type testResult struct {
-	name      string
-	passed    bool
-	elapsed   time.Duration
-	cost      float64
-	err       string          // error details for failures
-	toolCalls []*llm.ToolCall // raw tool calls for logging
+	name               string
+	passed             bool
+	elapsed            time.Duration
+	cost               float64
+	err                string          // error details for failures
+	toolCalls          []*llm.ToolCall // parsed tool calls for validation and logging
+	assistantText      string          // streamed assistant text content
+	assistantReasoning string          // streamed assistant reasoning content
+	rawSSEData         []string        // verbatim SSE data payloads received from provider
+	usage              *llm.Usage      // usage as reported in stream
 }
 
 // logEntry is the JSON structure written to log files.
 type logEntry struct {
-	Model     string            `json:"model"`
-	Mode      string            `json:"mode"`
-	Test      string            `json:"test"`
-	Passed    bool              `json:"passed"`
-	Error     string            `json:"error,omitempty"`
-	Elapsed   float64           `json:"elapsed_seconds"`
-	Cost      float64           `json:"cost"`
-	ToolCalls []json.RawMessage `json:"tool_calls"`
+	Model              string            `json:"model"`
+	Mode               string            `json:"mode"`
+	Test               string            `json:"test"`
+	Passed             bool              `json:"passed"`
+	Error              string            `json:"error,omitempty"`
+	Elapsed            float64           `json:"elapsed_seconds"`
+	Cost               float64           `json:"cost"`
+	Usage              *llm.Usage        `json:"usage,omitempty"`
+	AssistantText      string            `json:"assistant_text,omitempty"`
+	AssistantReasoning string            `json:"assistant_reasoning,omitempty"`
+	RawSSEData         []string          `json:"raw_sse_data,omitempty"`
+	ToolCalls          []json.RawMessage `json:"tool_calls"`
 }
 
 func main() {
@@ -366,13 +375,17 @@ func main() {
 
 func writeLog(logDir, model, mode string, testNum int, tc testCase, result testResult) {
 	entry := logEntry{
-		Model:   model,
-		Mode:    mode,
-		Test:    fmt.Sprintf("%02d_%s", testNum, tc.name),
-		Passed:  result.passed,
-		Error:   result.err,
-		Elapsed: result.elapsed.Seconds(),
-		Cost:    result.cost,
+		Model:              model,
+		Mode:               mode,
+		Test:               fmt.Sprintf("%02d_%s", testNum, tc.name),
+		Passed:             result.passed,
+		Error:              result.err,
+		Elapsed:            result.elapsed.Seconds(),
+		Cost:               result.cost,
+		Usage:              result.usage,
+		AssistantText:      result.assistantText,
+		AssistantReasoning: result.assistantReasoning,
+		RawSSEData:         result.rawSSEData,
 	}
 
 	for _, tc := range result.toolCalls {
@@ -389,6 +402,36 @@ func writeLog(logDir, model, mode string, testNum int, tc testCase, result testR
 	if err := os.WriteFile(logPath, data, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write log: %v\n", err)
 	}
+}
+
+func buildBenchmarkUserMessage(tc testCase, files map[string]string) string {
+	var b strings.Builder
+
+	b.WriteString("# writable files\n")
+	for _, src := range tc.sources {
+		content := files[src]
+		fileID := state.HashFileVersion(src, content)
+		b.WriteString(fmt.Sprintf("@file id=%s path=%s mode=rw source=context\n", fileID, src))
+		b.WriteString(content)
+		if !strings.HasSuffix(content, "\n") {
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("@end file id=%s\n\n", fileID))
+	}
+
+	b.WriteString("# latest\n")
+	b.WriteString("@latest\n")
+	b.WriteString("Files:\n")
+	for _, src := range tc.sources {
+		content := files[src]
+		fileID := state.HashFileVersion(src, content)
+		b.WriteString(fmt.Sprintf("  id=%s path=%s mode=rw\n", fileID, src))
+	}
+	b.WriteString("\n")
+	b.WriteString(tc.prompt)
+	b.WriteString("\n@end latest")
+
+	return b.String()
 }
 
 func runTest(client *llm.Client, model, mode string, tc testCase, index, total int) testResult {
@@ -415,12 +458,8 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 		expectedFiles[src] = string(exp)
 	}
 
-	// Build user message with all file contents and task
-	var userContent string
-	for _, src := range tc.sources {
-		userContent += fmt.Sprintf("Here is the file `%s`:\n\n```go\n%s```\n\n", src, files[src])
-	}
-	userContent += tc.prompt
+	// Build user message in the same structured format used by bb7 runtime prompts.
+	userContent := buildBenchmarkUserMessage(tc, files)
 	messages := []llm.Message{
 		{Role: "user", Content: userContent},
 	}
@@ -431,13 +470,13 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 	switch mode {
 	case "sr":
 		systemPrompt = editFileSRPrompt
-		diffMode = "search_replace"
+		diffMode = "search_replace_strict"
 	case "sr_multi":
 		systemPrompt = editFileSRMultiPrompt
-		diffMode = "search_replace_multi"
+		diffMode = "search_replace_multi_strict"
 	default:
 		systemPrompt = editFileAnchorPrompt
-		diffMode = "anchored"
+		diffMode = "anchored_strict"
 	}
 
 	// Call model
@@ -446,10 +485,19 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 
 	var toolCalls []*llm.ToolCall
 	var usage *llm.Usage
+	var assistantText strings.Builder
+	var assistantReasoning strings.Builder
+	var rawSSEData []string
 
 	start := time.Now()
 	err := client.ChatStream(ctx, model, systemPrompt, messages, nil, diffMode, "", func(event llm.StreamEvent) {
 		switch event.Type {
+		case "raw":
+			rawSSEData = append(rawSSEData, event.Raw)
+		case "content":
+			assistantText.WriteString(event.Content)
+		case "reasoning":
+			assistantReasoning.WriteString(event.Reasoning)
 		case "tool_call":
 			toolCalls = append(toolCalls, event.ToolCall)
 		case "done":
@@ -458,6 +506,10 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 	})
 	result.elapsed = time.Since(start)
 	result.toolCalls = toolCalls
+	result.assistantText = assistantText.String()
+	result.assistantReasoning = assistantReasoning.String()
+	result.rawSSEData = rawSSEData
+	result.usage = usage
 
 	if usage != nil {
 		result.cost = usage.Cost
@@ -480,6 +532,16 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 
 	printResult(index, total, result)
 	return result
+}
+
+func validateBenchFileID(path, requested, expected string) error {
+	if requested == "" {
+		return fmt.Errorf("file_id missing for %s: expected %s", path, expected)
+	}
+	if requested != expected {
+		return fmt.Errorf("file_id mismatch for %s: got %s, expected %s", path, requested, expected)
+	}
+	return nil
 }
 
 // applySRToolCalls processes search/replace edit_file tool calls sequentially.
@@ -516,6 +578,11 @@ func applySRToolCalls(result testResult, toolCalls []*llm.ToolCall, files, expec
 		content, ok := files[args.Path]
 		if !ok {
 			result.err = fmt.Sprintf("edit_file[%d]: unknown file %q", i, args.Path)
+			return result
+		}
+		expectedID := state.HashFileVersion(args.Path, content)
+		if idErr := validateBenchFileID(args.Path, args.FileID, expectedID); idErr != nil {
+			result.err = fmt.Sprintf("edit_file[%d] (%s): %v", i, args.Path, idErr)
 			return result
 		}
 
@@ -561,10 +628,20 @@ func applySRMultiToolCalls(result testResult, toolCalls []*llm.ToolCall, files, 
 	}
 
 	// Apply each edit sequentially
+	initialPathIDs := make(map[string]string)
 	for i, edit := range args.Edits {
 		content, ok := files[edit.Path]
 		if !ok {
 			result.err = fmt.Sprintf("edit %d: unknown file %q", i, edit.Path)
+			return result
+		}
+		expectedID, hasInitial := initialPathIDs[edit.Path]
+		if !hasInitial {
+			expectedID = state.HashFileVersion(edit.Path, content)
+			initialPathIDs[edit.Path] = expectedID
+		}
+		if idErr := validateBenchFileID(edit.Path, edit.FileID, expectedID); idErr != nil {
+			result.err = fmt.Sprintf("edit %d (%s): %v", i, edit.Path, idErr)
 			return result
 		}
 
@@ -612,6 +689,11 @@ func applyAnchoredToolCall(result testResult, toolCalls []*llm.ToolCall, files, 
 		content, ok := files[args.Path]
 		if !ok {
 			result.err = fmt.Sprintf("edit_file[%d]: unknown file %q", ci, args.Path)
+			return result
+		}
+		expectedID := state.HashFileVersion(args.Path, content)
+		if idErr := validateBenchFileID(args.Path, args.FileID, expectedID); idErr != nil {
+			result.err = fmt.Sprintf("edit_file[%d] (%s): %v", ci, args.Path, idErr)
 			return result
 		}
 

@@ -262,7 +262,8 @@ Implemented:
   "base_url": "https://openrouter.ai/api/v1",
   "default_model": "anthropic/claude-sonnet-4",
   "title_model": "anthropic/claude-3-haiku",
-  "explicit_cache_key": false
+  "explicit_cache_key": false,
+  "auto_retry_partial_edits": false
 }
 ```
 
@@ -290,6 +291,7 @@ Model selection behavior:
 | `title_model` | No | `anthropic/claude-3-haiku` | Model for title generation |
 | `allow_data_retention` | No | `true` | Allow providers that retain data transiently |
 | `allow_training` | No | `false` | Allow providers that train on user data |
+| `auto_retry_partial_edits` | No | `false` | If true, perform one hidden repair attempt after partial `edit_file` apply failures |
 
 ## Instructions
 

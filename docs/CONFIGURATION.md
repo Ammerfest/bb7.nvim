@@ -73,7 +73,8 @@ OpenRouter routes requests to different providers for the same model. These prov
   "api_key": "sk-or-...",
   "allow_training": false,
   "allow_data_retention": true,
-  "explicit_cache_key": false
+  "explicit_cache_key": false,
+  "auto_retry_partial_edits": false
 }
 ```
 
@@ -102,6 +103,19 @@ BB-7 can optionally send OpenRouter's `prompt_cache_key` with chat requests:
 **`explicit_cache_key`** (default: `false`) — When `true`, BB-7 sends a stable per-chat/per-model key (`bb7:<chat-id>:<model>`) to help providers reuse prompt-cache state across requests in the same chat.
 
 This setting is opt-in for low risk. If your provider or gateway does not support `prompt_cache_key`, keep it disabled.
+
+## Hidden Diff Repair Retry
+
+BB-7 can optionally run one internal repair attempt when `edit_file` changes fail partially during apply:
+
+```json
+{
+  "api_key": "sk-or-...",
+  "auto_retry_partial_edits": true
+}
+```
+
+**`auto_retry_partial_edits`** (default: `false`) — When `true`, BB-7 keeps successfully applied edits in a scratch state, sends a hidden retry request with updated writable file content plus retry context, and tries once to apply the remaining edits. If the retry still fails, BB-7 falls back to the normal `diff_error` response and does not commit output files.
 
 ## Chat Styling
 

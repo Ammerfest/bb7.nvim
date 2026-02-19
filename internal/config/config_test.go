@@ -14,7 +14,8 @@ func TestLoadFrom(t *testing.T) {
 			"api_key": "sk-test-123",
 			"base_url": "https://api.example.com",
 			"default_model": "gpt-4",
-			"explicit_cache_key": true
+			"explicit_cache_key": true,
+			"auto_retry_partial_edits": true
 		}`
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			t.Fatal(err)
@@ -36,6 +37,9 @@ func TestLoadFrom(t *testing.T) {
 		}
 		if cfg.ExplicitCacheKey == nil || !*cfg.ExplicitCacheKey {
 			t.Errorf("ExplicitCacheKey = %v, want true", cfg.ExplicitCacheKey)
+		}
+		if cfg.AutoRetryPartialEdits == nil || !*cfg.AutoRetryPartialEdits {
+			t.Errorf("AutoRetryPartialEdits = %v, want true", cfg.AutoRetryPartialEdits)
 		}
 	})
 
@@ -63,6 +67,9 @@ func TestLoadFrom(t *testing.T) {
 		}
 		if cfg.ExplicitCacheKey == nil || *cfg.ExplicitCacheKey {
 			t.Errorf("ExplicitCacheKey should default to false, got %v", cfg.ExplicitCacheKey)
+		}
+		if cfg.AutoRetryPartialEdits == nil || *cfg.AutoRetryPartialEdits {
+			t.Errorf("AutoRetryPartialEdits should default to false, got %v", cfg.AutoRetryPartialEdits)
 		}
 	})
 

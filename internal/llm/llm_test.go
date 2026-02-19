@@ -5,6 +5,28 @@ import (
 	"testing"
 )
 
+func requiredContains(params map[string]any, name string) bool {
+	required, ok := params["required"]
+	if !ok {
+		return false
+	}
+	switch v := required.(type) {
+	case []any:
+		for _, item := range v {
+			if s, _ := item.(string); s == name {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range v {
+			if item == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestParseWriteFileArgs(t *testing.T) {
 	t.Run("valid args", func(t *testing.T) {
 		args, err := ParseWriteFileArgs(`{"path": "math.cs", "content": "using System;"}`)
@@ -85,6 +107,9 @@ func TestDefaultTools(t *testing.T) {
 		if _, ok := props["old_string"]; !ok {
 			t.Error("expected 'old_string' property in search_replace mode")
 		}
+		if !requiredContains(params, "file_id") {
+			t.Error("expected 'file_id' in required list for search_replace mode")
+		}
 	})
 
 	t.Run("diffMode anchored", func(t *testing.T) {
@@ -106,6 +131,22 @@ func TestDefaultTools(t *testing.T) {
 		}
 		if _, ok := props["changes"]; !ok {
 			t.Error("expected 'changes' property in anchored mode")
+		}
+		if !requiredContains(params, "file_id") {
+			t.Error("expected 'file_id' in required list for anchored mode")
+		}
+	})
+
+	t.Run("strict modes expose edit_file only", func(t *testing.T) {
+		strictModes := []string{"search_replace_strict", "search_replace_multi_strict", "anchored_strict"}
+		for _, mode := range strictModes {
+			tools := DefaultTools(mode)
+			if len(tools) != 1 {
+				t.Fatalf("%s: len(tools) = %d, want 1", mode, len(tools))
+			}
+			if tools[0].Function.Name != "edit_file" {
+				t.Fatalf("%s: tool[0] = %q, want edit_file", mode, tools[0].Function.Name)
+			}
 		}
 	})
 
@@ -131,6 +172,7 @@ func TestDefaultTools(t *testing.T) {
 func TestParseAnchoredEditArgs(t *testing.T) {
 	t.Run("valid args", func(t *testing.T) {
 		args, err := ParseAnchoredEditArgs(`{
+			"file_id": "f000",
 			"path": "main.go",
 			"changes": [
 				{
@@ -175,6 +217,7 @@ func TestParseAnchoredEditArgs(t *testing.T) {
 
 	t.Run("null content becomes empty slice", func(t *testing.T) {
 		args, err := ParseAnchoredEditArgs(`{
+			"file_id": "f123",
 			"path": "main.go",
 			"changes": [{"start": ["a"], "content": null}]
 		}`)
@@ -197,28 +240,28 @@ func TestParseAnchoredEditArgs(t *testing.T) {
 	})
 
 	t.Run("no changes", func(t *testing.T) {
-		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": []}`)
+		_, err := ParseAnchoredEditArgs(`{"file_id":"f123","path": "x.go", "changes": []}`)
 		if err == nil {
 			t.Error("expected error for no changes")
 		}
 	})
 
 	t.Run("empty start", func(t *testing.T) {
-		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": [{"start": [], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"file_id":"f123","path": "x.go", "changes": [{"start": [], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for empty start")
 		}
 	})
 
 	t.Run("start too long", func(t *testing.T) {
-		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": [{"start": ["1","2","3","4","5","6","7","8","9","10","11"], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"file_id":"f123","path": "x.go", "changes": [{"start": ["1","2","3","4","5","6","7","8","9","10","11"], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for start too long")
 		}
 	})
 
 	t.Run("end too long", func(t *testing.T) {
-		_, err := ParseAnchoredEditArgs(`{"path": "x.go", "changes": [{"start": ["a"], "end": ["1","2","3","4","5","6","7","8","9","10","11"], "content": ["b"]}]}`)
+		_, err := ParseAnchoredEditArgs(`{"file_id":"f123","path": "x.go", "changes": [{"start": ["a"], "end": ["1","2","3","4","5","6","7","8","9","10","11"], "content": ["b"]}]}`)
 		if err == nil {
 			t.Error("expected error for end too long")
 		}
@@ -234,7 +277,7 @@ func TestParseAnchoredEditArgs(t *testing.T) {
 
 func TestParseEditFileArgs(t *testing.T) {
 	t.Run("valid args", func(t *testing.T) {
-		args, err := ParseEditFileArgs(`{"path": "main.go", "old_string": "hello", "new_string": "world"}`)
+		args, err := ParseEditFileArgs(`{"file_id":"abc123","path": "main.go", "old_string": "hello", "new_string": "world"}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -253,7 +296,7 @@ func TestParseEditFileArgs(t *testing.T) {
 	})
 
 	t.Run("with replace_all", func(t *testing.T) {
-		args, err := ParseEditFileArgs(`{"path": "main.go", "old_string": "a", "new_string": "b", "replace_all": true}`)
+		args, err := ParseEditFileArgs(`{"file_id":"abc123","path": "main.go", "old_string": "a", "new_string": "b", "replace_all": true}`)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -273,21 +316,21 @@ func TestParseEditFileArgs(t *testing.T) {
 	})
 
 	t.Run("missing path", func(t *testing.T) {
-		_, err := ParseEditFileArgs(`{"old_string": "a", "new_string": "b"}`)
+		_, err := ParseEditFileArgs(`{"file_id":"abc123","old_string": "a", "new_string": "b"}`)
 		if err == nil {
 			t.Error("expected error for missing path")
 		}
 	})
 
 	t.Run("missing old_string", func(t *testing.T) {
-		_, err := ParseEditFileArgs(`{"path": "x.go", "new_string": "b"}`)
+		_, err := ParseEditFileArgs(`{"file_id":"abc123","path": "x.go", "new_string": "b"}`)
 		if err == nil {
 			t.Error("expected error for missing old_string")
 		}
 	})
 
 	t.Run("no-op", func(t *testing.T) {
-		_, err := ParseEditFileArgs(`{"path": "x.go", "old_string": "same", "new_string": "same"}`)
+		_, err := ParseEditFileArgs(`{"file_id":"abc123","path": "x.go", "old_string": "same", "new_string": "same"}`)
 		if err == nil {
 			t.Error("expected error for no-op")
 		}
@@ -314,11 +357,12 @@ func TestParseEditFileMultiArgs(t *testing.T) {
 					"old_string": "hello",
 					"new_string": "world"
 				},
-				{
-					"path": "main.go",
-					"old_string": "foo",
-					"new_string": "bar"
-				}
+					{
+						"path": "main.go",
+						"file_id": "abc123",
+						"old_string": "foo",
+						"new_string": "bar"
+					}
 			]
 		}`)
 		if err != nil {
@@ -335,13 +379,14 @@ func TestParseEditFileMultiArgs(t *testing.T) {
 	t.Run("all no-op edits", func(t *testing.T) {
 		_, err := ParseEditFileMultiArgs(`{
 			"edits": [
-				{"path": "main.go", "old_string": "same", "new_string": "same"}
+				{"path": "main.go", "file_id":"abc123", "old_string": "same", "new_string": "same"}
 			]
 		}`)
 		if err == nil {
 			t.Error("expected error for all no-op edits")
 		}
 	})
+
 }
 
 func TestNewClient(t *testing.T) {

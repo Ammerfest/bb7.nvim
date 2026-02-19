@@ -11,6 +11,7 @@ Rules for all file tool calls:
 - Do not mix tools for the same file. Never use both `edit_file` and `write_file` for the same path in one response.
 - One `edit_file` call per response. Put ALL edits (even across multiple files) into one `edit_file` call.
 - One `write_file` call per file. Do not call `write_file` more than once for the same path in a single response.
+- For `edit_file`, every entry in `edits` must include `file_id`.
 
 ## edit_file Reference
 
@@ -20,6 +21,7 @@ Rules for all file tool calls:
 
 - `edits` (array, required): List of search/replace edits. Each edit has:
   - `path` (string, required): Relative file path of the existing file to modify.
+  - `file_id` (string, required): `id` of the writable base file version from `@file id=...`.
   - `old_string` (string, required): The exact text to find in the file. Must match exactly once (unless `replace_all` is true).
   - `new_string` (string, required): The replacement text. May be empty string to delete the matched text.
   - `replace_all` (boolean, optional, default false): Replace all occurrences of `old_string`.
@@ -121,6 +123,7 @@ The first edit removes B; the second inserts B at the new position. Both in one 
 ### Guidelines
 
 - **All edits in one call.** Put every edit into a single `edit_file` call. A task requiring 4 changes across 2 files needs one call with 4 entries in `edits`. Edits are applied sequentially, so later edits see the result of earlier ones.
+- **Always include `file_id` on every edit.** Use the `id` from the current writable `@file` block for that path. If `Files:` or `@file` shows the same `path` more than once (for example `status=original` and `status=pending_output`), use the writable `id`.
 - **Include enough context for uniqueness.** If the line you want to change could appear elsewhere in the file, include one or more surrounding lines in `old_string` and reproduce them unchanged in `new_string`.
 - **Preserve blank line separators.** When deleting or moving a block (like a function), include the surrounding blank lines in `old_string` and `new_string` so you don't leave double blank lines behind.
 - **Copy `old_string` exactly from the file.** Include indentation (spaces/tabs) as they appear. Matching is exact.

@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/youruser/bb7/internal/llm"
 )
 
 func resetActiveStreamForTest() {
@@ -253,5 +256,64 @@ func TestSetTerminalStreamErrorWithCanceledContext(t *testing.T) {
 	}
 	if ctx.Err() == nil {
 		t.Fatal("expected context to be canceled")
+	}
+}
+
+func TestValidateFileID(t *testing.T) {
+	t.Run("missing file_id", func(t *testing.T) {
+		err := validateFileID("src/game.c", "", "abc123", "pending")
+		if err == "" {
+			t.Fatal("expected error for missing file_id")
+		}
+	})
+
+	t.Run("mismatch", func(t *testing.T) {
+		err := validateFileID("src/game.c", "wrong", "abc123", "pending")
+		if err == "" {
+			t.Fatal("expected error for file_id mismatch")
+		}
+	})
+
+	t.Run("match", func(t *testing.T) {
+		err := validateFileID("src/game.c", "abc123", "abc123", "pending")
+		if err != "" {
+			t.Fatalf("expected no error, got %q", err)
+		}
+	})
+}
+
+func TestSummarizeEditPaths(t *testing.T) {
+	paths := summarizeEditPaths([]llm.EditFileArgs{
+		{Path: "a.go"},
+		{Path: "a.go"},
+		{Path: "b.go"},
+	})
+	if paths != "a.go,b.go" {
+		t.Fatalf("expected de-duplicated path summary, got %q", paths)
+	}
+}
+
+func TestFormatRetryContextModeSpecificGuidance(t *testing.T) {
+	rc := &retryContextData{
+		Errors: []string{
+			"edit_file edit 1 (x.go): old_string not found in file",
+			"edit_file edit 2 (x.go): file_id missing: expected abc",
+		},
+	}
+
+	anchored := formatRetryContext(rc, "anchored")
+	if !strings.Contains(anchored, "Fix the anchors and retry the file changes.") {
+		t.Fatalf("expected anchored retry guidance, got:\n%s", anchored)
+	}
+	if !strings.Contains(anchored, "Partial apply is not supported (all-or-nothing).") {
+		t.Fatalf("expected atomic retry guidance, got:\n%s", anchored)
+	}
+
+	sr := formatRetryContext(rc, "search_replace_multi")
+	if !strings.Contains(sr, "Fix the old_string matches and retry the file changes.") {
+		t.Fatalf("expected search/replace retry guidance, got:\n%s", sr)
+	}
+	if !strings.Contains(sr, "Include `file_id` on every `edit_file` call") {
+		t.Fatalf("expected file_id guidance, got:\n%s", sr)
 	}
 }

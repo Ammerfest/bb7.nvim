@@ -99,7 +99,8 @@ type APIError struct {
 
 // StreamEvent represents a parsed event from the SSE stream.
 type StreamEvent struct {
-	Type      string    // "content", "reasoning", "tool_call", "done", "error"
+	Type      string    // "raw", "content", "reasoning", "tool_call", "done", "error"
+	Raw       string    // For "raw" events (verbatim SSE data payload, including "[DONE]")
 	Content   string    // For "content" events
 	Reasoning string    // For "reasoning" events (thinking models)
 	ToolCall  *ToolCall // For "tool_call" events

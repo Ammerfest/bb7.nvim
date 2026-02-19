@@ -38,7 +38,7 @@ var EditFileAnchoredTool = Tool{
 				},
 				"file_id": map[string]any{
 					"type":        "string",
-					"description": "Optional file identifier from the @file id=... listing for the exact base version to edit.",
+					"description": "Required file identifier from the @file id=... listing for the exact base version to edit.",
 				},
 				"changes": map[string]any{
 					"type":        "array",
@@ -70,7 +70,7 @@ var EditFileAnchoredTool = Tool{
 					},
 				},
 			},
-			"required": []string{"path", "changes"},
+			"required": []string{"path", "file_id", "changes"},
 		},
 	},
 }
@@ -90,7 +90,7 @@ var EditFileSRTool = Tool{
 				},
 				"file_id": map[string]any{
 					"type":        "string",
-					"description": "Optional file identifier from the @file id=... listing for the exact base version to edit.",
+					"description": "Required file identifier from the @file id=... listing for the exact base version to edit.",
 				},
 				"old_string": map[string]any{
 					"type":        "string",
@@ -105,7 +105,7 @@ var EditFileSRTool = Tool{
 					"description": "Replace all occurrences of old_string (default false).",
 				},
 			},
-			"required": []string{"path", "old_string", "new_string"},
+			"required": []string{"path", "file_id", "old_string", "new_string"},
 		},
 	},
 }
@@ -132,7 +132,7 @@ var EditFileSRMultiTool = Tool{
 							},
 							"file_id": map[string]any{
 								"type":        "string",
-								"description": "Optional file identifier from the @file id=... listing for the exact base version to edit.",
+								"description": "Required file identifier from the @file id=... listing for the exact base version to edit.",
 							},
 							"old_string": map[string]any{
 								"type":        "string",
@@ -147,7 +147,7 @@ var EditFileSRMultiTool = Tool{
 								"description": "Replace all occurrences of old_string (default false).",
 							},
 						},
-						"required": []string{"path", "old_string", "new_string"},
+						"required": []string{"path", "file_id", "old_string", "new_string"},
 					},
 				},
 			},
@@ -161,6 +161,9 @@ var EditFileSRMultiTool = Tool{
 //   - "search_replace": write_file + edit_file (search/replace schema)
 //   - "search_replace_multi": write_file + edit_file (batched search/replace schema)
 //   - "anchored": write_file + edit_file (anchor schema)
+//   - "search_replace_strict": edit_file only (search/replace schema)
+//   - "search_replace_multi_strict": edit_file only (batched search/replace schema)
+//   - "anchored_strict": edit_file only (anchor schema)
 //   - "off": write_file only
 func DefaultTools(diffMode string) []Tool {
 	switch diffMode {
@@ -170,6 +173,12 @@ func DefaultTools(diffMode string) []Tool {
 		return []Tool{WriteFileTool, EditFileSRMultiTool}
 	case "anchored":
 		return []Tool{WriteFileTool, EditFileAnchoredTool}
+	case "search_replace_strict":
+		return []Tool{EditFileSRTool}
+	case "search_replace_multi_strict":
+		return []Tool{EditFileSRMultiTool}
+	case "anchored_strict":
+		return []Tool{EditFileAnchoredTool}
 	default:
 		return []Tool{WriteFileTool}
 	}
