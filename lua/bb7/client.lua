@@ -27,7 +27,7 @@ local function remove_pending_id(id)
 end
 
 -- Get path to bb7 binary
-local function get_bin_path()
+function M.get_bin_path()
   -- Check if user configured a path
   local config = require('bb7').get_config and require('bb7').get_config()
   if config and config.bin then
@@ -175,7 +175,7 @@ function M.start()
     return true -- already running
   end
 
-  local bin_path = get_bin_path()
+  local bin_path = M.get_bin_path()
   if vim.fn.executable(bin_path) ~= 1 then
     log.error('Binary not found: ' .. bin_path)
     return false

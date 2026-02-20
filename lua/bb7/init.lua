@@ -45,6 +45,17 @@ local config = {}
 function M.setup(opts)
   config = vim.tbl_deep_extend('force', default_config, opts or {})
 
+  -- Verify the backend binary is available before registering anything
+  local client = require('bb7.client')
+  local bin = client.get_bin_path()
+  if vim.fn.executable(bin) ~= 1 then
+    vim.notify(
+      'BB-7: backend binary not found. Run :Lazy build bb7 (requires Go).',
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
   -- Set up vim.notify capture for debugging (only active when debug enabled)
   log.setup_notify_capture()
 
