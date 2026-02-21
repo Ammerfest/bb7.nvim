@@ -10,7 +10,7 @@ function M.get_mock_chat()
       {
         role = 'user',
         parts = {
-          { type = 'text', content = 'Can you help me refactor this function to be more efficient? I have a nested loop that iterates over two lists and compares every element, which is really slow when the lists get large.' },
+          { type = 'text', content = 'Can you help me refactor `find_matches` to be more efficient? I have a nested loop that iterates over `list_a` and `list_b` and compares every element, which is really slow when the lists get large.' },
         },
       },
       -- Assistant response 1
@@ -19,11 +19,11 @@ function M.get_mock_chat()
         parts = {
           {
             type = 'thinking',
-            content = 'Let me analyze this request step by step. The user has described a classic O(n²) problem where they are comparing every element in one list against every element in another list.\n\nThe key insight here is that we can use a hash-based data structure to reduce the time complexity from O(n²) to O(n).',
+            content = 'Let me analyze this request step by step. The user has `find_matches` with a classic O(n²) problem where they are comparing every element in `list_a` against every element in `list_b`.\n\nThe key insight here is that we can convert `list_b` into a `set` to reduce the lookup time from O(n) to O(1), bringing the overall complexity from O(n²) to O(n).',
           },
           {
             type = 'text',
-            content = 'I\'ve analyzed your function and found a way to improve it significantly. By using a hash map, we can reduce this to O(n).',
+            content = 'I\'ve analyzed `find_matches` and found a way to improve it significantly. By converting `list_b` to a `set`, we can reduce the lookup from O(n) to O(1), making the overall function O(n).',
           },
           { type = 'context_event', action = 'AssistantWriteFile', path = 'src/utils.py', added = false },
         },
@@ -367,7 +367,7 @@ function M.get_format_test_chat()
         parts = {
           {
             type = 'text',
-            content = '**Bold alone** and *italic alone* and __underline alone__.\n\nMixed on one line: **bold** then *italic* then __underline__ done.\n\nAdjacent: **bold***italic*__underline__ no gaps.\n\nList with formatting:\n- **bold item**\n- *italic item*\n- __underline item__\n- item with **bold** in the middle\n- item with *italic* in the middle\n- item with __underline__ in the middle\n- **bold** and *italic* and __underline__ all in one item\n\nStar-prefixed list (markdown unordered):\n* plain item\n* **bold item**\n* *italic item*\n* item with **bold** word\n* item with *italic* word\n* **bold** and *italic* together\n\nUnclosed markers: **bold without close\nUnclosed italic: *italic without close\nUnclosed underline: __underline without close\n\nEmpty markers: **** and ** and __ __\n\nMultiple on one word: **bold1** normal **bold2**\n\nCode block should not format:\n```\n**not bold** and *not italic* and __not underline__\n```\n\nBack to formatting: **this should be bold** after code block.',
+            content = '**Bold alone** and *italic alone* and __underline alone__ and `inline code`.\n\nMixed on one line: **bold** then *italic* then __underline__ then `code` done.\n\nAdjacent: **bold***italic*__underline__`code` no gaps.\n\nList with formatting:\n- **bold item**\n- *italic item*\n- __underline item__\n- `code item`\n- item with **bold** in the middle\n- item with *italic* in the middle\n- item with __underline__ in the middle\n- item with `code` in the middle\n- **bold** and *italic* and __underline__ and `code` all in one item\n\nStar-prefixed list (markdown unordered):\n* plain item\n* **bold item**\n* *italic item*\n* item with **bold** word\n* item with *italic* word\n* **bold** and *italic* together\n\nInline code examples:\n- Call `vim.api.nvim_buf_set_lines()` to update\n- Set `BB7InlineCode` highlight to customize color\n- Use `local x = 1` for variables\n\nUnclosed markers: **bold without close\nUnclosed italic: *italic without close\nUnclosed underline: __underline without close\nUnclosed code: `code without close\n\nEmpty markers: **** and ** and __ __ and ``\n\nMultiple on one word: **bold1** normal **bold2**\n\nCode block should not format:\n```\n**not bold** and *not italic* and __not underline__ and `not code`\n```\n\nBack to formatting: **this should be bold** and `this should be code` after code block.',
           },
         },
       },

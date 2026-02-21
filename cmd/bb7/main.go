@@ -1247,6 +1247,18 @@ func handleRequest(line string) {
 		}
 		respond(reqID, map[string]any{"type": "ok", "content": content})
 
+	case "sync_context":
+		path, _ := req["path"].(string)
+		if path == "" {
+			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: path"})
+			return
+		}
+		if err := appState.SyncContextToLocal(path); err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok"})
+
 	case "diff_local_done":
 		path, _ := req["path"].(string)
 		if path == "" {

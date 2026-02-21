@@ -352,6 +352,10 @@ func (s *State) DiffLocalDone(path string) (*DiffLocalDoneResult, error) {
 		if _, err := s.ApplyFile(path); err != nil {
 			return nil, err
 		}
+		// Re-read local file in case a formatter changed it on save
+		if err := s.SyncContextToLocal(path); err != nil {
+			return nil, err
+		}
 		return &DiffLocalDoneResult{Outcome: "full"}, nil
 
 	default:
@@ -428,6 +432,53 @@ func (s *State) DiffLocalDone(path string) (*DiffLocalDoneResult, error) {
 
 		return &DiffLocalDoneResult{Outcome: "partial"}, nil
 	}
+}
+
+// SyncContextToLocal re-reads the local file and updates context if it differs.
+// This catches changes made by formatters that run on save.
+func (s *State) SyncContextToLocal(path string) error {
+	if err := s.requireActiveChat(); err != nil {
+		return err
+	}
+
+	cf := s.findContextFile(path)
+	if cf == nil {
+		return nil // not in context, nothing to sync
+	}
+
+	// Read local file from disk
+	localPath, err := SafeJoin(s.ProjectRoot, path)
+	if err != nil {
+		return err
+	}
+	localData, err := os.ReadFile(localPath)
+	if err != nil {
+		return nil // file doesn't exist locally, nothing to sync
+	}
+	localContent := string(localData)
+
+	// Read context content
+	contextContent, err := s.GetContextFile(path)
+	if err != nil {
+		return err
+	}
+
+	// Compare normalized; if equal, nothing to do
+	if normalizeContent(localContent) == normalizeContent(contextContent) {
+		return nil
+	}
+
+	// Update context storage with local content
+	storagePath, err := s.contextStoragePath(cf)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(storagePath, []byte(localContent), 0644); err != nil {
+		return err
+	}
+	cf.Version = HashFileVersion(cf.Path, localContent)
+
+	return nil
 }
 
 // normalizeContent normalizes content for comparison (handles line endings).

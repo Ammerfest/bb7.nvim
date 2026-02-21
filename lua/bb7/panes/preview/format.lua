@@ -11,14 +11,16 @@ function M.format_duration(seconds)
   return string.format('%02d:%02d', mins, secs)
 end
 
--- Process a line for text style markers (**bold**, *italic*, __underline__)
--- Returns: { display = "processed text", bold_regions = {}, italic_regions = {}, underline_regions = {} }
+-- Process a line for text style markers (**bold**, *italic*, __underline__, `code`)
+-- Returns: { display = "processed text", bold_regions = {}, italic_regions = {},
+--            underline_regions = {}, code_regions = {} }
 -- Positions are byte offsets in the display string
 function M.process_bold_markers(text)
   local display = ''
   local bold_regions = {}
   local italic_regions = {}
   local underline_regions = {}
+  local code_regions = {}
   local pos = 1
   local text_len = #text
 
@@ -27,6 +29,7 @@ function M.process_bold_markers(text)
     local bold_start = text:find('%*%*', pos)
     local italic_start = text:find('%*', pos)
     local underline_start = text:find('__', pos)
+    local code_start = text:find('`', pos)
 
     -- Skip italic_start if it's actually the start of bold (**)
     if italic_start and bold_start and italic_start == bold_start then
@@ -55,6 +58,10 @@ function M.process_bold_markers(text)
     if underline_start and (not earliest or underline_start < earliest) then
       earliest = underline_start
       marker_type = 'underline'
+    end
+    if code_start and (not earliest or code_start < earliest) then
+      earliest = code_start
+      marker_type = 'code'
     end
 
     if not earliest then
@@ -123,6 +130,22 @@ function M.process_bold_markers(text)
         table.insert(underline_regions, { region_start, region_end })
       end
       pos = end_marker + 2
+
+    elseif marker_type == 'code' then
+      -- Look for closing `
+      local end_marker = text:find('`', earliest + 1)
+      if not end_marker then
+        display = display .. text:sub(earliest)
+        break
+      end
+      local region_start = #display
+      local styled_text = text:sub(earliest + 1, end_marker - 1)
+      display = display .. styled_text
+      local region_end = #display
+      if region_end > region_start then
+        table.insert(code_regions, { region_start, region_end })
+      end
+      pos = end_marker + 1
     end
   end
 
@@ -131,6 +154,7 @@ function M.process_bold_markers(text)
     bold_regions = bold_regions,
     italic_regions = italic_regions,
     underline_regions = underline_regions,
+    code_regions = code_regions,
   }
 end
 

@@ -128,13 +128,25 @@ local function apply_extmarks(buf)
           virt_text_pos = 'inline',
         })
 
-        -- Text highlight: fg for text, bg for full line background
-        -- Use low priority so bold highlights (priority 4200) can override
+        -- Text highlight: never set fg via line_hl_group (it can't be overridden).
+        -- For highlights WITH bg: use bg_only for line_hl_group (extends bg to EOL)
+        -- For highlights WITHOUT bg: skip line_hl_group (lets CursorLine show through)
+        -- Always use hl_group for fg so inline formatting (priority 4200) can override it.
         if em.text_hl then
-          vim.api.nvim_buf_set_extmark(buf, shared.ns_id, em.line, 0, {
-            line_hl_group = em.text_hl,
-            priority = 50,
-          })
+          local text_hl_def = vim.api.nvim_get_hl(0, { name = em.text_hl, link = false })
+          if text_hl_def.bg then
+            vim.api.nvim_buf_set_extmark(buf, shared.ns_id, em.line, 0, {
+              line_hl_group = highlight.get_hl_bg_only(em.text_hl),
+              priority = 50,
+            })
+          end
+          if em.text_len and em.text_len > 0 then
+            vim.api.nvim_buf_set_extmark(buf, shared.ns_id, em.line, 0, {
+              end_col = em.text_len,
+              hl_group = highlight.get_hl_fg_only(em.text_hl),
+              priority = 50,
+            })
+          end
         end
       end
     else
@@ -308,15 +320,13 @@ local function render_text_segment(content, lines, role, first_line_of_part)
   local bold_hl = highlight.get_bold_hl(text_hl)
   local italic_hl = highlight.get_italic_hl(text_hl)
   local underline_hl = highlight.get_underline_hl(text_hl)
+  local inline_code_hl = highlight.get_inline_code_hl(text_hl)
   local first_line = first_line_of_part
 
   for _, line in ipairs(vim.split(content, '\n', { plain = true })) do
     -- Process style markers to get display text and styled regions
     local processed = format.process_bold_markers(line)
     local display_text = processed.display
-    local bold_regions = processed.bold_regions
-    local italic_regions = processed.italic_regions
-    local underline_regions = processed.underline_regions
 
     -- Wrap the display text
     local wrapped = format.wrap_text(display_text, text_width)
@@ -344,15 +354,16 @@ local function render_text_segment(content, lines, role, first_line_of_part)
             local hl_start = math.max(0, region_start - line_start)
             local hl_end = math.min(wrapped_len, region_end - line_start)
             if hl_end > hl_start then
-              table.insert(shared.syntax_highlights, { line_idx, hl_start, hl_end, hl_group })
+              table.insert(shared.inline_highlights, { line_idx, hl_start, hl_end, hl_group })
             end
           end
         end
       end
 
-      apply_style_regions(bold_regions, bold_hl)
-      apply_style_regions(italic_regions, italic_hl)
-      apply_style_regions(underline_regions, underline_hl)
+      apply_style_regions(processed.bold_regions, bold_hl)
+      apply_style_regions(processed.italic_regions, italic_hl)
+      apply_style_regions(processed.underline_regions, underline_hl)
+      apply_style_regions(processed.code_regions, inline_code_hl)
 
       -- Update cumulative position (account for trimmed trailing space in wrap)
       cum_pos = cum_pos + wrapped_len
@@ -557,9 +568,10 @@ local function render_reasoning_part(part, lines, collapsed, reasoning_id, msg_i
     local bold_hl = highlight.get_bold_hl(text_hl)
     local italic_hl = highlight.get_italic_hl(text_hl)
     local underline_hl = highlight.get_underline_hl(text_hl)
+    local inline_code_hl = highlight.get_inline_code_hl(text_hl)
 
     for _, line in ipairs(vim.split(content, '\n', { plain = true })) do
-      -- Process style markers (**bold**, *italic*, __underline__)
+      -- Process style markers (**bold**, *italic*, __underline__, `code`)
       local processed = format.process_bold_markers(line)
       local display_text = processed.display
 
@@ -586,7 +598,7 @@ local function render_reasoning_part(part, lines, collapsed, reasoning_id, msg_i
               local hl_start = math.max(0, region_start - line_start)
               local hl_end = math.min(wrapped_len, region_end - line_start)
               if hl_end > hl_start then
-                table.insert(shared.syntax_highlights, { line_idx, hl_start + indent, hl_end + indent, hl_group })
+                table.insert(shared.inline_highlights, { line_idx, hl_start + indent, hl_end + indent, hl_group })
               end
             end
           end
@@ -595,6 +607,7 @@ local function render_reasoning_part(part, lines, collapsed, reasoning_id, msg_i
         apply_style_regions(processed.bold_regions, bold_hl)
         apply_style_regions(processed.italic_regions, italic_hl)
         apply_style_regions(processed.underline_regions, underline_hl)
+        apply_style_regions(processed.code_regions, inline_code_hl)
 
         cum_pos = cum_pos + wrapped_len
         if cum_pos < #display_text then
@@ -847,6 +860,7 @@ function M.render()
   local lines = {}
   shared.extmarks = {}  -- Reset extmarks
   shared.syntax_highlights = {}  -- Reset syntax highlights
+  shared.inline_highlights = {}  -- Reset inline formatting highlights
   shared.state.reasoning_line_map = {}  -- Reset line map
   shared.state.anchor_lines = {}        -- Reset anchor tracking
   shared.state.anchor_msg_idx = {}      -- Reset anchor -> msg_idx map
@@ -955,6 +969,7 @@ function M.render()
       local bold_hl = highlight.get_bold_hl(text_hl)
       local italic_hl = highlight.get_italic_hl(text_hl)
       local underline_hl = highlight.get_underline_hl(text_hl)
+      local inline_code_hl = highlight.get_inline_code_hl(text_hl)
       for _, line in ipairs(shared.state.stream_reasoning_lines) do
         local processed = format.process_bold_markers(line)
         local display_text = processed.display
@@ -974,7 +989,7 @@ function M.render()
                 local hl_start = math.max(0, region_start - line_start)
                 local hl_end = math.min(wrapped_len, region_end - line_start)
                 if hl_end > hl_start then
-                  table.insert(shared.syntax_highlights, { line_idx, hl_start + reasoning_indent, hl_end + reasoning_indent, hl_group })
+                  table.insert(shared.inline_highlights, { line_idx, hl_start + reasoning_indent, hl_end + reasoning_indent, hl_group })
                 end
               end
             end
@@ -983,6 +998,7 @@ function M.render()
           apply_style_regions(processed.bold_regions, bold_hl)
           apply_style_regions(processed.italic_regions, italic_hl)
           apply_style_regions(processed.underline_regions, underline_hl)
+          apply_style_regions(processed.code_regions, inline_code_hl)
 
           cum_pos = cum_pos + wrapped_len
           if cum_pos < #display_text then
@@ -1119,6 +1135,16 @@ function M.render()
         priority = 4200,  -- Higher than line_hl_group default (4096)
       })
     end
+  end
+
+  -- Apply inline formatting highlights (bold, italic, underline, inline code)
+  -- Uses full highlight groups (not _FgOnly) so fg overrides line_hl_group
+  for _, hl in ipairs(shared.inline_highlights) do
+    vim.api.nvim_buf_set_extmark(shared.state.buf, shared.ns_id, hl[1], hl[2], {
+      end_col = hl[3],
+      hl_group = hl[4],
+      priority = 4200,
+    })
   end
 
   -- Scroll to bottom

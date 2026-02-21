@@ -47,6 +47,26 @@ function M.get_underline_hl(base_hl)
   return cache_key
 end
 
+-- Get or create an inline code variant of a highlight group
+-- Reads vim.g.bb7_inline_code_fg for optional color override.
+-- Always italic; fg defaults to base text color if not set.
+function M.get_inline_code_hl(base_hl)
+  if not base_hl then return 'Italic' end
+
+  local cache_key = base_hl .. '_InlineCode'
+  if not shared.bold_hl_cache[cache_key] then
+    local base_def = vim.api.nvim_get_hl(0, { name = base_hl, link = false })
+    local merged = vim.tbl_extend('force', base_def, { italic = true })
+    local custom_fg = vim.g.bb7_inline_code_fg
+    if custom_fg then
+      merged.fg = custom_fg
+    end
+    vim.api.nvim_set_hl(0, cache_key, merged)
+    shared.bold_hl_cache[cache_key] = true
+  end
+  return cache_key
+end
+
 -- Get or create a highlight group that ensures bg is set (defaults to Normal's bg)
 -- This prevents virtual text from inheriting line_hl_group's background
 function M.get_hl_with_bg(hl_name)

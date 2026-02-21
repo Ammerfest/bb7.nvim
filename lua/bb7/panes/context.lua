@@ -905,7 +905,9 @@ local function put_file()
           else
             log.info('Saved as ' .. dest_path)
           end
-          M.refresh()
+          client.request({ action = 'sync_context', path = dest_path }, function()
+            M.refresh()
+          end)
         end
       end)
     end)
@@ -922,7 +924,9 @@ local function put_file()
     if write_to_destination(file, file.path, response.content) then
       table.insert(state.applied_files, file.path)
       log.info('Applied ' .. file.path)
-      M.refresh()
+      client.request({ action = 'sync_context', path = file.path }, function()
+        M.refresh()
+      end)
     end
   end)
 end
@@ -969,15 +973,22 @@ local function put_all()
         table.insert(state.applied_files, file.path)
       end
 
-      applied = applied + 1
-      if applied == total then
-        local msg = 'Applied ' .. total .. ' file(s)'
-        if conflicts > 0 then
-          msg = msg .. ' (' .. conflicts .. ' conflict(s) skipped)'
+      -- Sync context to catch formatter changes, then check if all done
+      local function finish()
+        applied = applied + 1
+        if applied == total then
+          local msg = 'Applied ' .. total .. ' file(s)'
+          if conflicts > 0 then
+            msg = msg .. ' (' .. conflicts .. ' conflict(s) skipped)'
+          end
+          log.info(msg)
+          M.refresh()
         end
-        log.info(msg)
-        M.refresh()
       end
+
+      client.request({ action = 'sync_context', path = file.path }, function()
+        finish()
+      end)
     end)
   end
 end

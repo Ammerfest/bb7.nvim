@@ -184,6 +184,16 @@ vim.g.bb7_code_icon = vim.fn.nr2char(0xf121)              -- nf-fa-code
 vim.g.bb7_error_icon = vim.fn.nr2char(0xf071)             -- nf-fa-warning
 ```
 
+### Inline Code
+
+Text wrapped in backticks (`` `like this` ``) is rendered in italic with backticks hidden. To give inline code a distinct color, set `vim.g.bb7_inline_code_fg`:
+
+```lua
+vim.g.bb7_inline_code_fg = '#c4a000'  -- hex color
+```
+
+When not set, inline code uses the same foreground as the surrounding text (italic only).
+
 ### Bar Character, Diff, and Spinner
 
 These are the only styling options inside `setup()`:
