@@ -201,7 +201,7 @@ require('bb7').setup({
 
   -- Chat styling
   chat_style = {
-    bar_char = '▕',
+    bar_char = '🮇',
     user = { bar = 'DiagnosticInfo', bg = 'Pmenu' },
     assistant = {},
     code = { text = 'Identifier' },

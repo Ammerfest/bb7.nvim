@@ -17,7 +17,7 @@ local default_config = {
   -- Chat message styles are defined via BB7* highlight groups (see setup_highlights).
   -- Users can override these in their init.lua before calling setup().
   chat_style = {
-    bar_char = '▕',  -- Character used for the vertical bar
+    bar_char = '🮇',  -- Character used for the vertical bar
 
     -- Diff view colors (for gd mode)
     diff = {

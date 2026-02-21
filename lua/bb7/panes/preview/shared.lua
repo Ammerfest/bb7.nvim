@@ -42,7 +42,7 @@ M.persistent = {
 }
 
 M.config = {
-  bar_char = '▕',
+  bar_char = '🮇',
   spinner_frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
   code_indent = '    ',
   style = {

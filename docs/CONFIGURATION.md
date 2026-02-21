@@ -201,7 +201,7 @@ These are the only styling options inside `setup()`:
 ```lua
 require('bb7').setup({
   chat_style = {
-    bar_char = '▕',  -- Character used for the left bar (default: '▕')
+    bar_char = '🮇',  -- Character used for the left bar (default: '🮇')
 
     diff = {
       add = 'DiffAdd',       -- Highlight for added lines
