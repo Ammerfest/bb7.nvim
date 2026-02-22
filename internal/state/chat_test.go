@@ -1088,3 +1088,149 @@ func TestEditUserMessageRejectsEscapedSnapshotPath(t *testing.T) {
 		t.Fatalf("expected ErrPathEscape, got %v", err)
 	}
 }
+
+// --- Global chat tests ---
+
+func setupGlobalTestState(t *testing.T) *State {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	s := New()
+	if err := s.Init(""); err != nil {
+		t.Fatalf("Init (global-only) failed: %v", err)
+	}
+	return s
+}
+
+func TestChatNewGlobal(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	chat, err := s.ChatNewGlobal("global-test")
+	if err != nil {
+		t.Fatalf("ChatNewGlobal failed: %v", err)
+	}
+	if chat.Name != "global-test" {
+		t.Errorf("Expected name 'global-test', got %q", chat.Name)
+	}
+	if !chat.Global {
+		t.Error("Expected Global=true")
+	}
+	if s.ActiveChat != chat {
+		t.Error("Expected ActiveChat to be set")
+	}
+}
+
+func TestChatListGlobal(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	s.ChatNewGlobal("first")
+	s.ChatNewGlobal("second")
+
+	chats, err := s.ChatListGlobal()
+	if err != nil {
+		t.Fatalf("ChatListGlobal failed: %v", err)
+	}
+	if len(chats) != 2 {
+		t.Fatalf("Expected 2 chats, got %d", len(chats))
+	}
+	for _, c := range chats {
+		if !c.Global {
+			t.Errorf("Chat %s should have Global=true", c.ID)
+		}
+	}
+}
+
+func TestChatSelectGlobal(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	chat, _ := s.ChatNewGlobal("test")
+	chatID := chat.ID
+
+	// Create another to deselect first
+	s.ChatNewGlobal("other")
+
+	// Re-select first
+	selected, err := s.ChatSelectGlobal(chatID)
+	if err != nil {
+		t.Fatalf("ChatSelectGlobal failed: %v", err)
+	}
+	if selected.ID != chatID {
+		t.Errorf("Expected ID %q, got %q", chatID, selected.ID)
+	}
+	if !selected.Global {
+		t.Error("Expected Global=true after select")
+	}
+}
+
+func TestGlobalChatNoProjectRoot(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	if s.ProjectRoot != "" {
+		t.Errorf("Expected empty ProjectRoot, got %q", s.ProjectRoot)
+	}
+	if !s.GlobalOnly {
+		t.Error("Expected GlobalOnly=true")
+	}
+	if !s.Initialized() {
+		t.Error("Expected Initialized()=true for global-only mode")
+	}
+}
+
+func TestChatDeleteGlobal(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	chat, _ := s.ChatNewGlobal("to-delete")
+	s.ChatNewGlobal("keep") // switch away
+
+	if err := s.ChatDeleteGlobal(chat.ID); err != nil {
+		t.Fatalf("ChatDeleteGlobal failed: %v", err)
+	}
+
+	chats, _ := s.ChatListGlobal()
+	for _, c := range chats {
+		if c.ID == chat.ID {
+			t.Error("Deleted chat still in list")
+		}
+	}
+}
+
+func TestChatRenameGlobal(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	chat, _ := s.ChatNewGlobal("old-name")
+
+	if err := s.ChatRenameGlobal(chat.ID, "new-name"); err != nil {
+		t.Fatalf("ChatRenameGlobal failed: %v", err)
+	}
+
+	chats, _ := s.ChatListGlobal()
+	for _, c := range chats {
+		if c.ID == chat.ID && c.Name != "new-name" {
+			t.Errorf("Expected name 'new-name', got %q", c.Name)
+		}
+	}
+}
+
+func TestForkChatGlobal(t *testing.T) {
+	s := setupGlobalTestState(t)
+
+	chat, _ := s.ChatNewGlobal("source")
+	if err := s.AddUserMessage("hello", "model"); err != nil {
+		t.Fatalf("AddUserMessage failed: %v", err)
+	}
+	if err := s.SaveActiveChatGlobal(); err != nil {
+		t.Fatalf("SaveActiveChatGlobal failed: %v", err)
+	}
+
+	forked, err := s.ForkChatGlobal(chat.ID, 0)
+	if err != nil {
+		t.Fatalf("ForkChatGlobal failed: %v", err)
+	}
+	if forked.NewChatID == chat.ID {
+		t.Error("Forked chat should have different ID")
+	}
+	// ActiveChat should now be the forked global chat
+	if s.ActiveChat == nil || !s.ActiveChat.Global {
+		t.Error("Active chat after fork should be global")
+	}
+}

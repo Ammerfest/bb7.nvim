@@ -18,12 +18,16 @@ var (
 	ErrFileExists       = errors.New("context file already exists")
 	ErrExternalReadOnly = errors.New("external files are always read-only")
 	ErrContextModified  = errors.New("file has pending output")
+	ErrChatLocked       = errors.New("chat is locked by another process")
+	ErrGlobalReadOnly   = errors.New("global chats are read-only: file operations are not available")
 )
 
 // State holds the runtime state of BB-7.
 type State struct {
-	ProjectRoot string
-	ActiveChat  *Chat
+	ProjectRoot    string
+	ActiveChat     *Chat
+	GlobalOnly     bool   // True when no project root is set (global-only mode)
+	lockedChatDir  string // Chat directory currently locked by this instance
 }
 
 // New creates a new State instance. ProjectRoot must be set via Init.
@@ -60,7 +64,22 @@ func (s *State) ProjectInit(projectRoot string) error {
 
 // Init sets the project root. Requires .bb7 directory to exist.
 // Call ProjectInit first to create the directory structure.
+// If projectRoot is empty, enters global-only mode.
 func (s *State) Init(projectRoot string) error {
+	if projectRoot == "" {
+		// Global-only mode: no project root, only global chats available
+		s.GlobalOnly = true
+		if err := s.ensureGlobalChatsDir(); err != nil {
+			return err
+		}
+		// Best-effort restore of last active global chat.
+		idx, err := loadChatIndexFrom(s.globalChatsDir())
+		if err == nil && idx.ActiveChatID != "" {
+			s.ChatSelectGlobal(idx.ActiveChatID)
+		}
+		return nil
+	}
+
 	info, err := os.Stat(projectRoot)
 	if err != nil {
 		return err
@@ -86,9 +105,9 @@ func (s *State) Init(projectRoot string) error {
 	return nil
 }
 
-// Initialized returns true if Init has been called.
+// Initialized returns true if Init has been called (project mode or global-only mode).
 func (s *State) Initialized() bool {
-	return s.ProjectRoot != ""
+	return s.ProjectRoot != "" || s.GlobalOnly
 }
 
 // Path helpers
@@ -117,6 +136,61 @@ func (s *State) chatJSONPath(chatID string) string {
 	return filepath.Join(s.chatDir(chatID), "chat.json")
 }
 
+// Global path helpers
+
+func globalBB7Dir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), ".bb7")
+	}
+	return filepath.Join(home, ".bb7")
+}
+
+func (s *State) globalChatsDir() string {
+	return filepath.Join(globalBB7Dir(), "chats")
+}
+
+func (s *State) ensureGlobalChatsDir() error {
+	return os.MkdirAll(s.globalChatsDir(), 0755)
+}
+
+// globalChatDir returns the directory for a specific global chat.
+func (s *State) globalChatDir(chatID string) string {
+	return filepath.Join(s.globalChatsDir(), chatID)
+}
+
+func (s *State) globalChatJSONPath(chatID string) string {
+	return filepath.Join(s.globalChatDir(chatID), "chat.json")
+}
+
+func (s *State) globalContextDir(chatID string) string {
+	return filepath.Join(s.globalChatDir(chatID), "context")
+}
+
+// chatDirFor returns the chat directory for a given chat ID and global flag.
+func (s *State) chatDirFor(chatID string, global bool) string {
+	if global {
+		return s.globalChatDir(chatID)
+	}
+	return s.chatDir(chatID)
+}
+
+// chatsDirFor returns the chats directory for a given global flag.
+func (s *State) chatsDirFor(global bool) string {
+	if global {
+		return s.globalChatsDir()
+	}
+	return s.chatsDir()
+}
+
+// Cleanup releases any locks held by this instance.
+func (s *State) Cleanup() {
+	if s.lockedChatDir != "" {
+		ReleaseLock(s.lockedChatDir)
+		s.lockedChatDir = ""
+	}
+}
+
 // Guard functions
 
 func (s *State) requireInit() error {
@@ -127,8 +201,8 @@ func (s *State) requireInit() error {
 }
 
 func (s *State) requireActiveChat() error {
-	if err := s.requireInit(); err != nil {
-		return err
+	if !s.Initialized() {
+		return ErrNotInitialized
 	}
 	if s.ActiveChat == nil {
 		return ErrNoActiveChat

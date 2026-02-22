@@ -3,6 +3,7 @@ package state
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,33 +25,56 @@ func (s *State) ContextAdd(path, content string) error {
 
 // ContextAddWithReadOnly copies a file's content into the chat's context directory.
 // Internal files can be marked read-only; external files are always read-only.
+// For global chats: all files are forced to read-only and external. Relative paths
+// are rejected when no project root is set.
 func (s *State) ContextAddWithReadOnly(path, content string, readOnly bool) error {
 	if err := s.requireActiveChat(); err != nil {
 		return err
 	}
 
+	// Global chat guards
+	if s.ActiveChat.Global {
+		readOnly = true
+		if !filepath.IsAbs(path) {
+			if s.ProjectRoot == "" {
+				return errors.New("global chats require absolute paths when no project is set")
+			}
+			// Convert relative to absolute using project root
+			path = filepath.Join(s.ProjectRoot, path)
+		}
+	}
+
 	normalizedPath := path
 	isExternal := filepath.IsAbs(path)
 	if isExternal {
-		// External file: verify it's actually outside project
-		within, err := IsWithinDir(s.ProjectRoot, path)
-		if err != nil {
-			return err
-		}
-		if within {
-			// It's inside the project - convert to relative and treat as internal.
-			relPath, err := RelativeToBase(s.ProjectRoot, path)
+		if s.ProjectRoot != "" {
+			// External file: verify it's actually outside project
+			within, err := IsWithinDir(s.ProjectRoot, path)
 			if err != nil {
 				return err
 			}
-			normalizedPath = relPath
-			isExternal = false
+			if within && !s.ActiveChat.Global {
+				// It's inside the project - convert to relative and treat as internal.
+				relPath, err := RelativeToBase(s.ProjectRoot, path)
+				if err != nil {
+					return err
+				}
+				normalizedPath = relPath
+				isExternal = false
+			}
 		}
+		// When no project root (global-only), all abs paths are external
 	} else {
 		// Internal file: validate relative path.
 		if err := ValidateRelativePath(path); err != nil {
 			return err
 		}
+	}
+
+	// For global chats, force external
+	if s.ActiveChat.Global {
+		isExternal = true
+		normalizedPath = path // Keep absolute path
 	}
 
 	// Check if already in context after canonicalization.
@@ -65,10 +89,18 @@ func (s *State) ContextAddWithReadOnly(path, content string, readOnly bool) erro
 	return s.addInternalFile(normalizedPath, content, readOnly)
 }
 
+// activeContextDir returns the context directory for the active chat.
+func (s *State) activeContextDir() string {
+	if s.ActiveChat.Global {
+		return s.globalContextDir(s.ActiveChat.ID)
+	}
+	return s.contextDir(s.ActiveChat.ID)
+}
+
 // addInternalFile adds a file that's inside the project directory.
 func (s *State) addInternalFile(relPath, content string, readOnly bool) error {
 	// Validate path stays within context directory
-	contextBase := s.contextDir(s.ActiveChat.ID)
+	contextBase := s.activeContextDir()
 	fullPath, err := SafeJoin(contextBase, relPath)
 	if err != nil {
 		return err
@@ -104,7 +136,7 @@ func (s *State) addInternalFile(relPath, content string, readOnly bool) error {
 // External files are always read-only.
 func (s *State) addExternalFile(absPath, content string) error {
 	// Store in _external subdirectory with hashed filename to avoid conflicts
-	externalBase := filepath.Join(s.contextDir(s.ActiveChat.ID), externalDir)
+	externalBase := filepath.Join(s.activeContextDir(), externalDir)
 	if err := os.MkdirAll(externalBase, 0755); err != nil {
 		return err
 	}
@@ -166,10 +198,18 @@ func (s *State) ContextAddSection(path string, startLine, endLine int, content s
 		return fmt.Errorf("start line (%d) cannot be greater than end line (%d)", startLine, endLine)
 	}
 
+	// For global chats, force external
+	if s.ActiveChat.Global && !filepath.IsAbs(path) {
+		if s.ProjectRoot == "" {
+			return errors.New("global chats require absolute paths when no project is set")
+		}
+		path = filepath.Join(s.ProjectRoot, path)
+	}
+
 	// Determine if external (absolute path outside project)
 	normalizedPath := path
 	isExternal := filepath.IsAbs(path)
-	if isExternal {
+	if isExternal && s.ProjectRoot != "" && !s.ActiveChat.Global {
 		within, err := IsWithinDir(s.ProjectRoot, path)
 		if err != nil {
 			return err
@@ -183,11 +223,16 @@ func (s *State) ContextAddSection(path string, startLine, endLine int, content s
 			normalizedPath = relPath
 			isExternal = false
 		}
-	} else {
+	} else if !isExternal {
 		// Validate relative path
 		if err := ValidateRelativePath(path); err != nil {
 			return err
 		}
+	}
+
+	if s.ActiveChat.Global {
+		isExternal = true
+		normalizedPath = path
 	}
 
 	// Check if this exact section already exists after canonicalization.
@@ -198,7 +243,7 @@ func (s *State) ContextAddSection(path string, startLine, endLine int, content s
 	}
 
 	// Store in _sections subdirectory with hashed filename
-	sectionsBase := filepath.Join(s.contextDir(s.ActiveChat.ID), sectionsDir)
+	sectionsBase := filepath.Join(s.activeContextDir(), sectionsDir)
 	if err := os.MkdirAll(sectionsBase, 0755); err != nil {
 		return err
 	}
@@ -439,7 +484,12 @@ func (s *State) IsReadOnly(path string) bool {
 
 // contextStoragePath returns the actual filesystem path for a context file.
 func (s *State) contextStoragePath(cf *ContextFile) (string, error) {
-	contextBase := s.contextDir(s.ActiveChat.ID)
+	var contextBase string
+	if s.ActiveChat.Global {
+		contextBase = s.globalContextDir(s.ActiveChat.ID)
+	} else {
+		contextBase = s.contextDir(s.ActiveChat.ID)
+	}
 
 	// Sections are stored in _sections subdirectory
 	if cf.StartLine > 0 && cf.EndLine > 0 {
@@ -515,7 +565,12 @@ func (s *State) HasContextFile(path string) bool {
 // contextFilePath returns the storage path for a context file given a chat ID and ContextFileRef.
 // This is used by ForkChat/EditUserMessage to read context files from snapshots.
 func (s *State) contextFilePath(chatID string, ref ContextFileRef) (string, error) {
-	contextBase := s.contextDir(chatID)
+	var contextBase string
+	if s.ActiveChat != nil && s.ActiveChat.Global {
+		contextBase = s.globalContextDir(chatID)
+	} else {
+		contextBase = s.contextDir(chatID)
+	}
 
 	// Sections are stored in _sections subdirectory
 	if ref.StartLine > 0 && ref.EndLine > 0 {

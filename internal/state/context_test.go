@@ -727,3 +727,37 @@ func TestFindContextSection(t *testing.T) {
 		t.Error("Expected nil for non-existent section")
 	}
 }
+
+func TestContextAddGlobalChat(t *testing.T) {
+	s := setupGlobalTestState(t)
+	s.ChatNewGlobal("test")
+
+	// Add with absolute path — should be forced read-only and external
+	absPath := "/tmp/test-global-context.go"
+	if err := s.ContextAdd(absPath, "package test"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+
+	if len(s.ActiveChat.ContextFiles) != 1 {
+		t.Fatalf("Expected 1 context file, got %d", len(s.ActiveChat.ContextFiles))
+	}
+
+	cf := s.ActiveChat.ContextFiles[0]
+	if !cf.ReadOnly {
+		t.Error("Global chat context should be read-only")
+	}
+	if !cf.External {
+		t.Error("Global chat context should be external")
+	}
+}
+
+func TestContextAddGlobalChatRejectsRelativeWithoutProject(t *testing.T) {
+	s := setupGlobalTestState(t)
+	s.ChatNewGlobal("test")
+
+	// Relative path with no project root should fail
+	err := s.ContextAdd("main.go", "package main")
+	if err == nil {
+		t.Error("Expected error for relative path in global chat without project root")
+	}
+}

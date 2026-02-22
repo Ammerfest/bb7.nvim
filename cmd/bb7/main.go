@@ -87,6 +87,8 @@ func main() {
 		return
 	}
 
+	defer appState.Cleanup()
+
 	// Debug: show if BB7_DEBUG is set
 	if os.Getenv("BB7_DEBUG") == "1" {
 		fmt.Fprintf(os.Stderr, "BB-7: process started with BB7_DEBUG=1\n")
@@ -734,6 +736,7 @@ func actionMutatesChatState(action string) bool {
 		"chat_edit",
 		"chat_delete",
 		"chat_rename",
+		"chat_force_unlock",
 		"fork_chat",
 		"save_draft",
 		"save_chat_settings",
@@ -768,6 +771,7 @@ func actionUsesChatState(action string) bool {
 		"chat_delete",
 		"chat_active",
 		"chat_rename",
+		"chat_force_unlock",
 		"fork_chat",
 		"save_draft",
 		"save_chat_settings",
@@ -871,19 +875,26 @@ func handleRequest(line string) {
 
 	case "init":
 		projectRoot, _ := req["project_root"].(string)
-		if projectRoot == "" {
-			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: project_root"})
-			return
-		}
 		if err := appState.Init(projectRoot); err != nil {
 			respond(reqID, errorResponse(err))
 			return
 		}
-		respond(reqID, map[string]any{"type": "ok"})
+		resp := map[string]any{"type": "ok"}
+		if appState.GlobalOnly {
+			resp["global_only"] = true
+		}
+		respond(reqID, resp)
 
 	case "chat_new":
 		name, _ := req["name"].(string)
-		chat, err := appState.ChatNew(name)
+		global, _ := req["global"].(bool)
+		var chat *state.Chat
+		var err error
+		if global || appState.GlobalOnly {
+			chat, err = appState.ChatNewGlobal(name)
+		} else {
+			chat, err = appState.ChatNew(name)
+		}
 		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
@@ -891,7 +902,14 @@ func handleRequest(line string) {
 		respond(reqID, map[string]any{"type": "ok", "id": chat.ID})
 
 	case "chat_list":
-		chats, err := appState.ChatList()
+		global, _ := req["global"].(bool)
+		var chats []state.ChatSummary
+		var err error
+		if global || appState.GlobalOnly {
+			chats, err = appState.ChatListGlobal()
+		} else {
+			chats, err = appState.ChatList()
+		}
 		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
@@ -900,7 +918,14 @@ func handleRequest(line string) {
 
 	case "search_chats":
 		query, _ := req["query"].(string)
-		results, err := appState.SearchChats(query)
+		global, _ := req["global"].(bool)
+		var results []state.ChatSearchResult
+		var err error
+		if global || appState.GlobalOnly {
+			results, err = appState.SearchChatsGlobal(query)
+		} else {
+			results, err = appState.SearchChats(query)
+		}
 		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
@@ -913,7 +938,14 @@ func handleRequest(line string) {
 			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: id"})
 			return
 		}
-		if _, err := appState.ChatSelect(id); err != nil {
+		global, _ := req["global"].(bool)
+		var err error
+		if global || appState.GlobalOnly {
+			_, err = appState.ChatSelectGlobal(id)
+		} else {
+			_, err = appState.ChatSelect(id)
+		}
+		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
 		}
@@ -924,7 +956,7 @@ func handleRequest(line string) {
 			respond(reqID, errorResponse(state.ErrNoActiveChat))
 			return
 		}
-		respond(reqID, map[string]any{
+		resp := map[string]any{
 			"type":              "chat",
 			"id":                appState.ActiveChat.ID,
 			"name":              appState.ActiveChat.Name,
@@ -934,7 +966,11 @@ func handleRequest(line string) {
 			"draft":             appState.ActiveChat.Draft,
 			"messages":          appState.ActiveChat.Messages,
 			"instructions_info": appState.GetInstructionsInfo(),
-		})
+		}
+		if appState.ActiveChat.Global {
+			resp["global"] = true
+		}
+		respond(reqID, resp)
 
 	case "chat_edit":
 		if appState.ActiveChat == nil {
@@ -967,7 +1003,14 @@ func handleRequest(line string) {
 			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: id"})
 			return
 		}
-		if err := appState.ChatDelete(id); err != nil {
+		global, _ := req["global"].(bool)
+		var err error
+		if global || appState.GlobalOnly {
+			err = appState.ChatDeleteGlobal(id)
+		} else {
+			err = appState.ChatDelete(id)
+		}
+		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
 		}
@@ -978,11 +1021,14 @@ func handleRequest(line string) {
 			respond(reqID, errorResponse(state.ErrNotInitialized))
 			return
 		}
-		var chatID any
+		resp := map[string]any{"type": "chat_active"}
 		if appState.ActiveChat != nil {
-			chatID = appState.ActiveChat.ID
+			resp["id"] = appState.ActiveChat.ID
+			if appState.ActiveChat.Global {
+				resp["global"] = true
+			}
 		}
-		respond(reqID, map[string]any{"type": "chat_active", "id": chatID})
+		respond(reqID, resp)
 
 	case "chat_rename":
 		id, _ := req["id"].(string)
@@ -995,7 +1041,14 @@ func handleRequest(line string) {
 			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: name"})
 			return
 		}
-		if err := appState.ChatRename(id, name); err != nil {
+		global, _ := req["global"].(bool)
+		var err error
+		if global || appState.GlobalOnly {
+			err = appState.ChatRenameGlobal(id, name)
+		} else {
+			err = appState.ChatRename(id, name)
+		}
+		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
 		}
@@ -1013,8 +1066,15 @@ func handleRequest(line string) {
 			return
 		}
 		forkIndex := int(forkIndexFloat)
+		global, _ := req["global"].(bool)
 
-		result, err := appState.ForkChat(chatID, forkIndex)
+		var result *state.ForkChatResult
+		var err error
+		if global || appState.GlobalOnly {
+			result, err = appState.ForkChatGlobal(chatID, forkIndex)
+		} else {
+			result, err = appState.ForkChat(chatID, forkIndex)
+		}
 		if err != nil {
 			respond(reqID, errorResponse(err))
 			return
@@ -1318,6 +1378,7 @@ func handleRequest(line string) {
 		respond(reqID, map[string]any{"type": "ok"})
 
 	case "shutdown":
+		appState.Cleanup()
 		os.Exit(0)
 
 	case "get_customization_info":
@@ -1363,6 +1424,19 @@ func handleRequest(line string) {
 			return
 		}
 		if err := appState.AddSystemMessage(message); err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok"})
+
+	case "chat_force_unlock":
+		id, _ := req["id"].(string)
+		if id == "" {
+			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: id"})
+			return
+		}
+		global, _ := req["global"].(bool)
+		if err := appState.ChatForceUnlock(id, global || appState.GlobalOnly); err != nil {
 			respond(reqID, errorResponse(err))
 			return
 		}
@@ -1523,6 +1597,11 @@ func handleSend(reqID string, req map[string]any) {
 		respond(reqID, errorResponse(state.ErrNoActiveChat))
 		return
 	}
+	// Global chats use no tools
+	isGlobalChat := appState.ActiveChat.Global
+	if isGlobalChat {
+		diffMode = "none"
+	}
 	if model == "" {
 		model = appState.ActiveChat.Model
 	}
@@ -1589,15 +1668,18 @@ func handleSend(reqID string, req map[string]any) {
 		fullSystemPrompt = effectiveSystemPrompt + "\n" + instructionsBlock
 	}
 
-	switch diffMode {
-	case "search_replace":
-		fullSystemPrompt += "\n" + editFileSRPrompt
-	case "search_replace_multi":
-		fullSystemPrompt += "\n" + editFileSRMultiPrompt
-	case "anchored":
-		fullSystemPrompt += "\n" + editFileAnchorPrompt
-	default:
-		fullSystemPrompt += "\n" + writeFilePrompt
+	// Global chats get no tool prompts
+	if !isGlobalChat {
+		switch diffMode {
+		case "search_replace":
+			fullSystemPrompt += "\n" + editFileSRPrompt
+		case "search_replace_multi":
+			fullSystemPrompt += "\n" + editFileSRMultiPrompt
+		case "anchored":
+			fullSystemPrompt += "\n" + editFileAnchorPrompt
+		default:
+			fullSystemPrompt += "\n" + writeFilePrompt
+		}
 	}
 
 	logLLMMessage("SYSTEM", fullSystemPrompt, activeChatID, model)

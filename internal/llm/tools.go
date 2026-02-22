@@ -167,6 +167,8 @@ var EditFileSRMultiTool = Tool{
 //   - "off": write_file only
 func DefaultTools(diffMode string) []Tool {
 	switch diffMode {
+	case "none":
+		return []Tool{}
 	case "search_replace":
 		return []Tool{WriteFileTool, EditFileSRTool}
 	case "search_replace_multi":

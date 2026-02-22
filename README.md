@@ -107,6 +107,10 @@ Optional settings:
 5. **Review**: Responses appear in Preview. `gf` for file view, `gd` for diff
 6. **Apply**: In Files pane, `p` to apply a file or `P` for all
 
+### Chat Locking
+
+Each chat is locked while in use to prevent concurrent modification across Neovim instances. Locked chats are visually indicated and cannot be selected. Stale locks from crashed sessions are cleaned up automatically. Use `u` in the Chats pane to force-unlock a chat if needed.
+
 ### Commands
 
 | Command | Description |
@@ -160,6 +164,8 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `d` | Delete chat |
 | `p` | Pin/unpin chat |
 | `r` | Rename chat |
+| `<C-s>` | Toggle project/global chats |
+| `u` | Force-unlock a locked chat |
 
 **Files [2]:**
 
@@ -222,6 +228,12 @@ BB-7 doesn't include a built-in merge tool — use the diff tools you already kn
 Standard diff commands (`]c`/`[c` to jump, `do`/`dp` to obtain/put changes) work as expected.
 
 **Git workflow**: Apply all changes with `P`, then use your git client (lazygit, fugitive, etc.) to unstage hunks you don't want.
+
+## Global Chats
+
+Global chats are stored at `~/.bb7/chats/` and are available from any directory, even without a BB-7 project. They are read-only: the assistant cannot write or edit files. All context files are treated as external and read-only. Use `<C-s>` in the Chats pane to toggle between project and global chats.
+
+When you open BB-7 in a directory without a `.bb7` project, it enters global-only mode automatically — only global chats are available.
 
 ## Configuration
 

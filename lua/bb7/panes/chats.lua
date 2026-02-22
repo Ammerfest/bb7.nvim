@@ -7,9 +7,15 @@ local log = require('bb7.log')
 -- Pinned chats set (chat_id -> true), per-project
 local pinned_chats = {}
 local current_project_root = nil
+local viewing_global = false  -- true when viewing global chats
 
--- Get pinned chats path for current project
+-- Get pinned chats path for current project or global
 local function get_pinned_path()
+  if viewing_global then
+    local home = os.getenv('HOME')
+    if not home then return nil end
+    return home .. '/.bb7/pinned_chats.json'
+  end
   local project_root = current_project_root or client.get_project_root()
   if not project_root then
     return nil
@@ -155,9 +161,11 @@ local function render()
   for i, chat in ipairs(state.chats) do
     -- Active chat marker (only if a chat is actually selected) and pinned indicator
     local is_active = state.active_idx and i == state.active_idx
+    local is_locked = chat.locked
     local marker = is_active and '●' or ' '
     local pin = is_pinned(chat.id) and '!' or ' '
-    local prefix = pin .. marker .. ' '
+    local lock = is_locked and '⊘' or ' '
+    local prefix = pin .. marker .. lock .. ' '
     local prefix_width = vim.fn.strwidth(prefix)
     local name_max_width = win_width - prefix_width
     local name = truncate(chat.name, name_max_width)
@@ -169,7 +177,7 @@ local function render()
       table.insert(highlights, {
         line = i - 1,
         col_start = 1,
-        col_end = 4,  -- Just the marker
+        col_end = 1 + #'●',
         hl = 'BB7MarkerActive',
       })
     end
@@ -180,6 +188,16 @@ local function render()
         col_start = 0,
         col_end = 1,  -- Just the '!'
         hl = 'DiagnosticWarn',
+      })
+    end
+    -- Highlight locked chats
+    if is_locked then
+      local name_start = #prefix
+      table.insert(highlights, {
+        line = i - 1,
+        col_start = name_start,
+        col_end = #line,
+        hl = 'Comment',
       })
     end
   end
@@ -252,10 +270,24 @@ local function select_chat(callback)
     state.on_before_chat_switch()
   end
 
+  -- Block selecting locked chats
+  if chat.locked then
+    log.warn('Chat is locked by another instance')
+    M.refresh()
+    return
+  end
+
   -- Select in backend
-  client.request({ action = 'chat_select', id = chat.id }, function(response, err)
+  local req = { action = 'chat_select', id = chat.id }
+  if viewing_global then req.global = true end
+  client.request(req, function(response, err)
     if err then
-      log.error('Failed to select chat: ' .. tostring(err))
+      if err:find('locked') then
+        log.warn('Chat is locked by another instance')
+      else
+        log.error('Failed to select chat: ' .. tostring(err))
+      end
+      M.refresh()
       return
     end
 
@@ -268,7 +300,7 @@ local function select_chat(callback)
 
       state.active_idx = state.selected_idx
       state.active_chat = chat_response
-      render()
+      M.refresh()
 
       if state.on_chat_selected then
         state.on_chat_selected(chat_response)
@@ -292,7 +324,9 @@ function M.new_chat()
     return
   end
 
-  client.request({ action = 'chat_new', name = name }, function(response, err)
+  local req = { action = 'chat_new', name = name }
+  if viewing_global then req.global = true end
+  client.request(req, function(response, err)
     if err then
       log.error('Failed to create chat: ' .. err)
       return
@@ -343,7 +377,9 @@ local function rename_chat()
       return
     end
 
-    client.request({ action = 'chat_rename', id = target_chat.id, name = new_name }, function(_, err)
+    local req = { action = 'chat_rename', id = target_chat.id, name = new_name }
+    if viewing_global then req.global = true end
+    client.request(req, function(_, err)
       if err then
         log.error('Failed to rename chat: ' .. tostring(err))
         return
@@ -378,7 +414,9 @@ local function delete_chat()
       return
     end
 
-    client.request({ action = 'chat_delete', id = target_chat.id }, function(_, err)
+    local req = { action = 'chat_delete', id = target_chat.id }
+    if viewing_global then req.global = true end
+    client.request(req, function(_, err)
       if err then
         log.error('Failed to delete chat: ' .. tostring(err))
         return
@@ -412,6 +450,52 @@ local function toggle_pin_selected()
   M.refresh()
 end
 
+-- Toggle between project and global chats
+local function toggle_mode()
+  if client.is_global_only() then
+    return -- Can't toggle in global-only mode
+  end
+  viewing_global = not viewing_global
+  state.selected_idx = 1
+  state.active_idx = nil
+  state.active_chat = nil
+  -- Reload pinned chats for the new mode
+  load_pinned()
+  -- Notify that chat was deselected
+  if state.on_chat_selected then
+    state.on_chat_selected(nil)
+  end
+  M.refresh()
+  -- Notify data changed (for footer/title updates)
+  if state.on_data_changed then
+    state.on_data_changed()
+  end
+end
+
+-- Force unlock the selected chat
+local function force_unlock()
+  if #state.chats == 0 then return end
+  sync_selection_with_cursor()
+  local chat = state.chats[state.selected_idx]
+  if not chat or not chat.locked then return end
+
+  local display_name = truncate_prompt(chat.name or '', 50)
+  local prompt = string.format('Force unlock chat "%s"?', display_name)
+  local confirmed = vim.fn.confirm(prompt, '&Yes\n&No', 2)
+  if confirmed ~= 1 then return end
+
+  local req = { action = 'chat_force_unlock', id = chat.id }
+  if viewing_global then req.global = true end
+  client.request(req, function(_, err)
+    if err then
+      log.error('Failed to unlock: ' .. tostring(err))
+      return
+    end
+    log.info('Chat unlocked')
+    M.refresh()
+  end)
+end
+
 -- Clone context to new chat
 -- Refresh the chat list from backend
 function M.refresh(callback)
@@ -423,7 +507,9 @@ function M.refresh(callback)
     active_chat_id = state.chats[state.active_idx].id
   end
 
-  client.request({ action = 'chat_list' }, function(response, err)
+  local req = { action = 'chat_list' }
+  if viewing_global then req.global = true end
+  client.request(req, function(response, err)
     if err then
       log.error('Failed to list chats: ' .. tostring(err))
       if callback then callback() end
@@ -504,6 +590,8 @@ function M.setup_keymaps(buf)
   vim.keymap.set('n', 'r', rename_chat, opts)
   vim.keymap.set('n', 'd', delete_chat, opts)
   vim.keymap.set('n', 'p', toggle_pin_selected, opts)
+  vim.keymap.set('n', '<C-s>', toggle_mode, opts)
+  vim.keymap.set('n', 'u', force_unlock, opts)
 end
 
 -- Set callbacks
@@ -553,7 +641,9 @@ function M.ensure_chat_exists(callback)
   -- Create new chat
   local name = 'Untitled chat - ' .. os.date('%Y-%m-%d %H:%M')
 
-  client.request({ action = 'chat_new', name = name }, function(response, err)
+  local req = { action = 'chat_new', name = name }
+  if viewing_global then req.global = true end
+  client.request(req, function(response, err)
     if err then
       log.error('Failed to create chat: ' .. tostring(err))
       if callback then callback(false) end
@@ -571,7 +661,9 @@ function M.ensure_chat_exists(callback)
       end
 
       -- Get full chat data
-      client.request({ action = 'chat_select', id = response.id }, function(_, sel_err)
+      local sel_req = { action = 'chat_select', id = response.id }
+      if viewing_global then sel_req.global = true end
+      client.request(sel_req, function(_, sel_err)
         if sel_err then
           if callback then callback(true) end
           return
@@ -593,7 +685,25 @@ end
 
 -- Get the shortcut hints for this pane
 function M.get_hints()
-  return 'Select: <CR> | New: n | Pin: p | Rename: r | Delete: d'
+  local parts = {}
+  -- Show scope toggle hint only when toggling is possible (not global-only)
+  if not client.is_global_only() then
+    local toggle_label = viewing_global and 'Show Project' or 'Show Global'
+    table.insert(parts, toggle_label .. ': <C-s>')
+  end
+  table.insert(parts, 'Select: <CR>')
+  table.insert(parts, 'New: n')
+  table.insert(parts, 'Pin: p')
+  table.insert(parts, 'Rename: r')
+  table.insert(parts, 'Delete: d')
+  -- Show unlock hint if any chat in view is locked
+  for _, chat in ipairs(state.chats) do
+    if chat.locked then
+      table.insert(parts, 'Unlock: u')
+      break
+    end
+  end
+  return table.concat(parts, ' | ')
 end
 
 -- Cleanup
@@ -659,6 +769,17 @@ end
 function M.set_project_root(project_root)
   current_project_root = project_root
   load_pinned()
+end
+
+-- Set global mode (for global-only init)
+function M.set_global_mode(global)
+  viewing_global = global
+  load_pinned()
+end
+
+-- Check if viewing global chats
+function M.is_viewing_global()
+  return viewing_global
 end
 
 -- Inject mock chat list for screenshot mode (bypasses backend)

@@ -180,9 +180,9 @@ function M.setup(opts)
         return
       end
 
-      -- Make path relative to project root if possible
-      local project_root = client.get_project_root() or vim.fn.getcwd()
-      if path:sub(1, #project_root) == project_root then
+      -- Make path relative to project root if possible (skip in global-only mode)
+      local project_root = client.get_project_root()
+      if project_root and path:sub(1, #project_root) == project_root then
         path = path:sub(#project_root + 2)
       end
 
@@ -231,13 +231,14 @@ function M.setup(opts)
     -- Parse path:start:end syntax
     local path, start_line, end_line = parse_section_arg(arg)
 
-    -- Make path relative to project root if possible
-    local project_root = client.get_project_root() or vim.fn.getcwd()
+    -- Resolve and normalize path
+    local project_root = client.get_project_root()
     local full_path = path
     if not vim.fn.filereadable(path) then
-      full_path = project_root .. '/' .. path
+      full_path = (project_root or vim.fn.getcwd()) .. '/' .. path
     end
-    if path:sub(1, #project_root) == project_root then
+    -- Make path relative to project root if possible (skip in global-only mode)
+    if project_root and path:sub(1, #project_root) == project_root then
       path = path:sub(#project_root + 2)  -- +2 to skip the trailing slash
     end
 
@@ -363,9 +364,9 @@ function M.setup(opts)
       return
     end
 
-    -- Make path relative to project root if possible
-    local project_root = client.get_project_root() or vim.fn.getcwd()
-    if path:sub(1, #project_root) == project_root then
+    -- Make path relative to project root if possible (skip in global-only mode)
+    local project_root = client.get_project_root()
+    if project_root and path:sub(1, #project_root) == project_root then
       path = path:sub(#project_root + 2)
     end
 

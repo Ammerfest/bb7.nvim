@@ -60,13 +60,30 @@ local render
 --   is_dir: boolean
 --   children: list of child nodes (for directories)
 --   file: original file entry (for files only)
+-- Shorten absolute paths under $HOME to use ~ notation
+local function shorten_home(path)
+  local home = os.getenv('HOME')
+  if home and path:sub(1, #home) == home then
+    return '~' .. path:sub(#home + 1)
+  end
+  return path
+end
+
 local function build_tree(files)
   local root = { name = '', path = '', is_dir = true, children = {} }
 
   for _, file in ipairs(files) do
+    -- External files: show as flat entry with shortened path (no tree splitting)
+    -- Internal files: split into tree components as usual
+    local display_path = file.external and shorten_home(file.path) or file.path
     local parts = {}
-    for part in file.path:gmatch('[^/]+') do
-      table.insert(parts, part)
+    if file.external then
+      -- Treat entire shortened path as the "filename" — no directory nesting
+      table.insert(parts, display_path)
+    else
+      for part in display_path:gmatch('[^/]+') do
+        table.insert(parts, part)
+      end
     end
 
     local current = root

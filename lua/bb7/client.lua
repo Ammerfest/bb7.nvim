@@ -15,6 +15,7 @@ local state = {
   response_buffer = '',   -- buffer for partial JSON lines
   initialized = false,
   project_root = nil,
+  global_only = false,    -- true when no project root (global-only mode)
 }
 
 local function remove_pending_id(id)
@@ -313,10 +314,22 @@ function M.init(project_root, callback)
   state.project_root = project_root
   M.send({ action = 'init', project_root = project_root }, function(response, err)
     if err then
-      if callback then callback(nil, err) end
+      -- If project init fails, retry with empty project_root (global-only mode)
+      log.info('No project found, entering global-only mode')
+      state.project_root = nil
+      state.global_only = true
+      M.send({ action = 'init', project_root = '' }, function(resp2, err2)
+        if err2 then
+          if callback then callback(nil, err2) end
+          return
+        end
+        state.initialized = true
+        if callback then callback(resp2, nil) end
+      end)
       return
     end
     state.initialized = true
+    state.global_only = response.global_only or false
     if callback then callback(response, nil) end
   end)
 end
@@ -334,6 +347,11 @@ end
 -- Get project root
 function M.get_project_root()
   return state.project_root
+end
+
+-- Check if in global-only mode (no project root)
+function M.is_global_only()
+  return state.global_only
 end
 
 -- Register event handlers for async events (title_updated, etc.)

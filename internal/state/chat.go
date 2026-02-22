@@ -21,6 +21,14 @@ func generateID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// releasePreviousLock releases the lock on the previously active chat (if any).
+func (s *State) releasePreviousLock() {
+	if s.lockedChatDir != "" {
+		ReleaseLock(s.lockedChatDir)
+		s.lockedChatDir = ""
+	}
+}
+
 // ChatNew creates a new chat and sets it as active.
 func (s *State) ChatNew(name string) (*Chat, error) {
 	if err := s.requireInit(); err != nil {
@@ -64,6 +72,14 @@ func (s *State) ChatNew(name string) (*Chat, error) {
 		// Index is a cache; do not fail chat creation if it can't be updated.
 	}
 
+	// Release old lock, acquire new one
+	s.releasePreviousLock()
+	if err := AcquireLock(chatDir); err != nil {
+		// Lock failure is not fatal for chat creation
+	} else {
+		s.lockedChatDir = chatDir
+	}
+
 	s.ActiveChat = chat
 	s.saveActiveChatID(chat.ID)
 	return chat, nil
@@ -83,6 +99,11 @@ func (s *State) ChatList() ([]ChatSummary, error) {
 		return nil, err
 	}
 
+	// Check lock status for each chat
+	for i := range idx.Chats {
+		idx.Chats[i].Locked = IsLocked(s.chatDir(idx.Chats[i].ID))
+	}
+
 	sort.Slice(idx.Chats, func(i, j int) bool {
 		return idx.Chats[i].Created.After(idx.Chats[j].Created)
 	})
@@ -98,26 +119,7 @@ type chatSummaryFile struct {
 
 // loadChatSummary reads chat.json and extracts only summary fields.
 func (s *State) loadChatSummary(id string) (ChatSummary, error) {
-	file, err := os.Open(s.chatJSONPath(id))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return ChatSummary{}, ErrChatNotFound
-		}
-		return ChatSummary{}, err
-	}
-	defer file.Close()
-
-	var summary chatSummaryFile
-	dec := json.NewDecoder(file)
-	if err := dec.Decode(&summary); err != nil {
-		return ChatSummary{}, err
-	}
-
-	return ChatSummary{
-		ID:      summary.ID,
-		Name:    summary.Name,
-		Created: summary.Created,
-	}, nil
+	return loadChatSummaryFrom(s.chatJSONPath(id))
 }
 
 // ChatSelect loads a chat by ID and sets it as active.
@@ -126,9 +128,24 @@ func (s *State) ChatSelect(id string) (*Chat, error) {
 		return nil, err
 	}
 
+	chatDir := s.chatDir(id)
+
+	// Check if locked by another process
+	if IsLocked(chatDir) {
+		return nil, ErrChatLocked
+	}
+
 	chat, err := s.loadChat(id)
 	if err != nil {
 		return nil, err
+	}
+
+	// Release old lock, acquire new one
+	s.releasePreviousLock()
+	if err := AcquireLock(chatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = chatDir
 	}
 
 	s.ActiveChat = chat
@@ -147,7 +164,13 @@ func (s *State) ChatDelete(id string) error {
 		return ErrChatNotFound
 	}
 
+	// Check if locked by another process
+	if IsLocked(chatDir) {
+		return ErrChatLocked
+	}
+
 	if s.ActiveChat != nil && s.ActiveChat.ID == id {
+		s.releasePreviousLock()
 		s.ActiveChat = nil
 		s.saveActiveChatID("")
 	}
@@ -227,6 +250,9 @@ func (s *State) saveChat(chat *Chat) error {
 func (s *State) SaveActiveChat() error {
 	if err := s.requireActiveChat(); err != nil {
 		return err
+	}
+	if s.ActiveChat.Global {
+		return s.SaveActiveChatGlobal()
 	}
 	if err := s.saveChat(s.ActiveChat); err != nil {
 		return err
@@ -314,6 +340,15 @@ func (s *State) AddAssistantMessage(content string, parts []MessagePart, outputF
 func (s *State) SetChatName(id, name string) error {
 	if err := s.requireInit(); err != nil {
 		return err
+	}
+
+	// Route to global if the target chat is global
+	isGlobal := s.GlobalOnly
+	if !isGlobal && s.ActiveChat != nil && s.ActiveChat.ID == id && s.ActiveChat.Global {
+		isGlobal = true
+	}
+	if isGlobal {
+		return s.ChatRenameGlobal(id, name)
 	}
 
 	chat, err := s.loadChat(id)
@@ -655,6 +690,15 @@ func (s *State) ForkChat(chatID string, forkIndex int) (*ForkChatResult, error) 
 		return nil, err
 	}
 
+	// Release old lock, acquire new one
+	s.releasePreviousLock()
+	newChatDir := s.chatDir(newID)
+	if err := AcquireLock(newChatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = newChatDir
+	}
+
 	// Set as active chat
 	s.ActiveChat = newChat
 	s.saveActiveChatID(newChat.ID)
@@ -812,4 +856,487 @@ func (s *State) EditUserMessage(msgIndex int, content string) ([]ContextWarning,
 	}
 
 	return warnings, s.SaveActiveChat()
+}
+
+// --- Global chat operations ---
+
+// saveChatAt writes a chat to a specific chat directory.
+func saveChatAt(chatDir string, chat *Chat) error {
+	chatPath := filepath.Join(chatDir, "chat.json")
+	data, err := json.MarshalIndent(chat, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(chatPath, data, 0644)
+}
+
+// loadChatFrom reads a chat from a specific chat.json path.
+func loadChatFrom(chatJSONPath string) (*Chat, error) {
+	data, err := os.ReadFile(chatJSONPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrChatNotFound
+		}
+		return nil, err
+	}
+
+	var chat Chat
+	if err := json.Unmarshal(data, &chat); err != nil {
+		return nil, err
+	}
+
+	return &chat, nil
+}
+
+// ChatNewGlobal creates a new global chat and sets it as active.
+func (s *State) ChatNewGlobal(name string) (*Chat, error) {
+	if err := s.ensureGlobalChatsDir(); err != nil {
+		return nil, err
+	}
+
+	id, err := generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	created := time.Now().UTC()
+	if name == "" {
+		name = "Chat " + created.Format("2006-01-02 15:04")
+	}
+
+	chat := &Chat{
+		ID:           id,
+		Name:         name,
+		Created:      created,
+		Model:        "anthropic/claude-sonnet-4",
+		Global:       true,
+		ContextFiles: []ContextFile{},
+		Messages:     []Message{},
+	}
+
+	chatDir := s.globalChatDir(id)
+	// Global chats only need a context directory (no output dir)
+	if err := os.MkdirAll(filepath.Join(chatDir, "context"), 0755); err != nil {
+		return nil, err
+	}
+
+	if err := saveChatAt(chatDir, chat); err != nil {
+		os.RemoveAll(chatDir)
+		return nil, err
+	}
+	if err := updateChatIndexEntryAt(s.globalChatsDir(), chat); err != nil {
+		// Index is a cache; do not fail chat creation if it can't be updated.
+	}
+
+	// Release old lock, acquire new one
+	s.releasePreviousLock()
+	if err := AcquireLock(chatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = chatDir
+	}
+
+	s.ActiveChat = chat
+	saveActiveChatIDAt(s.globalChatsDir(), chat.ID)
+	return chat, nil
+}
+
+// ChatListGlobal returns summaries of all global chats, sorted by creation time (newest first).
+func (s *State) ChatListGlobal() ([]ChatSummary, error) {
+	if err := s.ensureGlobalChatsDir(); err != nil {
+		return nil, err
+	}
+
+	idx, err := ensureChatIndexAt(s.globalChatsDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []ChatSummary{}, nil
+		}
+		return nil, err
+	}
+
+	// Mark all as global and check lock status
+	for i := range idx.Chats {
+		idx.Chats[i].Global = true
+		idx.Chats[i].Locked = IsLocked(s.globalChatDir(idx.Chats[i].ID))
+	}
+
+	sort.Slice(idx.Chats, func(i, j int) bool {
+		return idx.Chats[i].Created.After(idx.Chats[j].Created)
+	})
+
+	return idx.Chats, nil
+}
+
+// ChatSelectGlobal loads a global chat by ID and sets it as active.
+func (s *State) ChatSelectGlobal(id string) (*Chat, error) {
+	chatDir := s.globalChatDir(id)
+
+	// Check if locked by another process
+	if IsLocked(chatDir) {
+		return nil, ErrChatLocked
+	}
+
+	chatPath := s.globalChatJSONPath(id)
+	chat, err := loadChatFrom(chatPath)
+	if err != nil {
+		return nil, err
+	}
+	chat.Global = true // Ensure the flag is set
+
+	// Release old lock, acquire new one
+	s.releasePreviousLock()
+	if err := AcquireLock(chatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = chatDir
+	}
+
+	s.ActiveChat = chat
+	saveActiveChatIDAt(s.globalChatsDir(), chat.ID)
+	return chat, nil
+}
+
+// ChatDeleteGlobal removes a global chat by ID.
+func (s *State) ChatDeleteGlobal(id string) error {
+	chatDir := s.globalChatDir(id)
+	if _, err := os.Stat(chatDir); os.IsNotExist(err) {
+		return ErrChatNotFound
+	}
+
+	// Check if locked by another process
+	if IsLocked(chatDir) {
+		return ErrChatLocked
+	}
+
+	if s.ActiveChat != nil && s.ActiveChat.ID == id && s.ActiveChat.Global {
+		s.releasePreviousLock()
+		s.ActiveChat = nil
+		saveActiveChatIDAt(s.globalChatsDir(), "")
+	}
+
+	if err := os.RemoveAll(chatDir); err != nil {
+		return err
+	}
+	if err := removeChatIndexEntryAt(s.globalChatsDir(), id); err != nil {
+		// Index is a cache
+	}
+	return nil
+}
+
+// ChatRenameGlobal updates a global chat's name.
+func (s *State) ChatRenameGlobal(id, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return ErrChatNameEmpty
+	}
+
+	chatDir := s.globalChatDir(id)
+	chatPath := s.globalChatJSONPath(id)
+
+	if s.ActiveChat != nil && s.ActiveChat.ID == id && s.ActiveChat.Global {
+		s.ActiveChat.Name = name
+		if err := saveChatAt(chatDir, s.ActiveChat); err != nil {
+			return err
+		}
+		updateChatIndexEntryAt(s.globalChatsDir(), s.ActiveChat)
+		return nil
+	}
+
+	chat, err := loadChatFrom(chatPath)
+	if err != nil {
+		return err
+	}
+	chat.Name = name
+	if err := saveChatAt(chatDir, chat); err != nil {
+		return err
+	}
+	updateChatIndexEntryAt(s.globalChatsDir(), chat)
+	return nil
+}
+
+// SearchChatsGlobal searches through all global chats by title and content.
+func (s *State) SearchChatsGlobal(query string) ([]ChatSearchResult, error) {
+	if err := s.ensureGlobalChatsDir(); err != nil {
+		return nil, err
+	}
+
+	chatsDir := s.globalChatsDir()
+	entries, err := os.ReadDir(chatsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []ChatSearchResult{}, nil
+		}
+		return nil, err
+	}
+
+	queryLower := strings.ToLower(query)
+	var results []ChatSearchResult
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		chatPath := filepath.Join(chatsDir, entry.Name(), "chat.json")
+		chat, err := loadChatFrom(chatPath)
+		if err != nil {
+			continue
+		}
+
+		if query == "" {
+			results = append(results, ChatSearchResult{
+				ID:        chat.ID,
+				Name:      chat.Name,
+				Created:   chat.Created,
+				MatchType: "title",
+			})
+			continue
+		}
+
+		if strings.Contains(strings.ToLower(chat.Name), queryLower) {
+			results = append(results, ChatSearchResult{
+				ID:        chat.ID,
+				Name:      chat.Name,
+				Created:   chat.Created,
+				MatchType: "title",
+			})
+			continue
+		}
+
+		excerpt := searchChatContent(chat, queryLower)
+		if excerpt != "" {
+			results = append(results, ChatSearchResult{
+				ID:        chat.ID,
+				Name:      chat.Name,
+				Created:   chat.Created,
+				MatchType: "content",
+				Excerpt:   excerpt,
+			})
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Created.After(results[j].Created)
+	})
+
+	return results, nil
+}
+
+// ChatForceUnlock forcefully removes the lock on a chat.
+func (s *State) ChatForceUnlock(id string, global bool) error {
+	chatDir := s.chatDirFor(id, global)
+	return ForceUnlock(chatDir)
+}
+
+// SaveActiveChatGlobal persists the current active global chat to disk.
+func (s *State) SaveActiveChatGlobal() error {
+	if s.ActiveChat == nil {
+		return ErrNoActiveChat
+	}
+	chatDir := s.globalChatDir(s.ActiveChat.ID)
+	if err := saveChatAt(chatDir, s.ActiveChat); err != nil {
+		return err
+	}
+	updateChatIndexEntryAt(s.globalChatsDir(), s.ActiveChat)
+	return nil
+}
+
+// ForkChatGlobal creates a new global chat from an existing global conversation.
+func (s *State) ForkChatGlobal(chatID string, forkIndex int) (*ForkChatResult, error) {
+	chatsDir := s.globalChatsDir()
+
+	// Load source chat
+	sourceChat, err := loadChatFrom(filepath.Join(chatsDir, chatID, "chat.json"))
+	if err != nil {
+		return nil, err
+	}
+
+	if forkIndex < 0 || forkIndex >= len(sourceChat.Messages) {
+		return nil, errors.New("fork index out of range")
+	}
+
+	forkMsg := sourceChat.Messages[forkIndex]
+	if forkMsg.Role != "user" {
+		return nil, errors.New("can only fork from user messages")
+	}
+
+	newID, err := generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	newName := sourceChat.Name
+	if !strings.HasPrefix(newName, "Fork of ") {
+		newName = "Fork of " + newName
+	}
+
+	newChat := &Chat{
+		ID:              newID,
+		Name:            newName,
+		Created:         time.Now().UTC(),
+		Model:           sourceChat.Model,
+		ReasoningEffort: sourceChat.ReasoningEffort,
+		Global:          true,
+		Draft:           MessageText(forkMsg),
+		ContextFiles:    []ContextFile{},
+		Messages:        []Message{},
+	}
+
+	newChatDir := s.globalChatDir(newID)
+	if err := os.MkdirAll(filepath.Join(newChatDir, "context"), 0755); err != nil {
+		return nil, err
+	}
+
+	// Copy messages up to (not including) forkIndex
+	if forkIndex > 0 {
+		newChat.Messages = make([]Message, forkIndex)
+		copy(newChat.Messages, sourceChat.Messages[:forkIndex])
+	}
+
+	// Copy context files from source chat
+	var warnings []ContextWarning
+	snapshot := forkMsg.ContextSnapshot
+	if len(snapshot) == 0 && len(sourceChat.ContextFiles) > 0 {
+		snapshot = make([]ContextFileRef, len(sourceChat.ContextFiles))
+		for i, cf := range sourceChat.ContextFiles {
+			snapshot[i] = ContextFileRef{
+				Path:      cf.Path,
+				FileID:    cf.Version,
+				StartLine: cf.StartLine,
+				EndLine:   cf.EndLine,
+			}
+		}
+	}
+
+	srcContextDir := filepath.Join(chatsDir, chatID, "context")
+	for _, ref := range snapshot {
+		// Determine source path
+		var srcPath string
+		if ref.StartLine > 0 && ref.EndLine > 0 {
+			srcPath = filepath.Join(srcContextDir, sectionsDir, hashSectionKey(ref.Path, ref.StartLine, ref.EndLine))
+		} else if filepath.IsAbs(ref.Path) {
+			srcPath = filepath.Join(srcContextDir, externalDir, hashPath(ref.Path))
+		} else {
+			var joinErr error
+			srcPath, joinErr = SafeJoin(srcContextDir, ref.Path)
+			if joinErr != nil {
+				return nil, joinErr
+			}
+		}
+
+		content, err := os.ReadFile(srcPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				warnings = append(warnings, ContextWarning{
+					Path:            ref.Path,
+					Issue:           "deleted",
+					OriginalVersion: ref.FileID,
+				})
+				continue
+			}
+			return nil, err
+		}
+
+		// Check if file still exists on filesystem
+		if _, err := os.Stat(ref.Path); os.IsNotExist(err) {
+			warnings = append(warnings, ContextWarning{
+				Path:            ref.Path,
+				Issue:           "deleted",
+				OriginalVersion: ref.FileID,
+			})
+			continue
+		}
+
+		currentVersion := HashFileVersion(ref.Path, string(content))
+		if currentVersion != ref.FileID {
+			warnings = append(warnings, ContextWarning{
+				Path:            ref.Path,
+				Issue:           "modified",
+				OriginalVersion: ref.FileID,
+			})
+		}
+
+		// Write to new chat's context directory
+		newContextDir := filepath.Join(newChatDir, "context")
+		var dstPath string
+		if ref.StartLine > 0 && ref.EndLine > 0 {
+			dstPath = filepath.Join(newContextDir, sectionsDir, hashSectionKey(ref.Path, ref.StartLine, ref.EndLine))
+		} else if filepath.IsAbs(ref.Path) {
+			dstPath = filepath.Join(newContextDir, externalDir, hashPath(ref.Path))
+		} else {
+			var joinErr error
+			dstPath, joinErr = SafeJoin(newContextDir, ref.Path)
+			if joinErr != nil {
+				return nil, joinErr
+			}
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(dstPath, content, 0644); err != nil {
+			return nil, err
+		}
+
+		var readOnly, external bool
+		for _, cf := range sourceChat.ContextFiles {
+			if cf.Path == ref.Path && cf.StartLine == ref.StartLine && cf.EndLine == ref.EndLine {
+				readOnly = cf.ReadOnly
+				external = cf.External
+				break
+			}
+		}
+
+		newChat.ContextFiles = append(newChat.ContextFiles, ContextFile{
+			Path:      ref.Path,
+			ReadOnly:  readOnly,
+			External:  external,
+			Version:   currentVersion,
+			StartLine: ref.StartLine,
+			EndLine:   ref.EndLine,
+		})
+	}
+
+	if len(warnings) > 0 {
+		var parts []MessagePart
+		for _, w := range warnings {
+			action := "ForkWarningModified"
+			if w.Issue == "deleted" {
+				action = "ForkWarningDeleted"
+			}
+			parts = append(parts, MessagePart{
+				Type:    "context_event",
+				Action:  action,
+				Path:    w.Path,
+				Version: w.OriginalVersion,
+			})
+		}
+		newChat.Messages = append(newChat.Messages, Message{
+			Role:      "system",
+			Parts:     parts,
+			Timestamp: time.Now().UTC(),
+		})
+	}
+
+	if err := saveChatAt(newChatDir, newChat); err != nil {
+		os.RemoveAll(newChatDir)
+		return nil, err
+	}
+
+	// Release old lock, acquire new one
+	s.releasePreviousLock()
+	if err := AcquireLock(newChatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = newChatDir
+	}
+
+	s.ActiveChat = newChat
+	saveActiveChatIDAt(s.globalChatsDir(), newChat.ID)
+
+	return &ForkChatResult{
+		NewChatID:          newID,
+		ForkMessageContent: MessageText(forkMsg),
+		ContextWarnings:    warnings,
+	}, nil
 }

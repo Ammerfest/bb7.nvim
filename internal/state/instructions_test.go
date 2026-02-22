@@ -209,6 +209,44 @@ func TestStripComments(t *testing.T) {
 	}
 }
 
+func TestBuildInstructionsBlock_GlobalChat(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "bb7"), 0755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "bb7", globalInstructionsFilename), []byte("global\n"), 0644); err != nil {
+		t.Fatalf("write global instructions: %v", err)
+	}
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".bb7"), 0755); err != nil {
+		t.Fatalf("mkdir .bb7: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".bb7", projectInstructionsFilename), []byte("project\n"), 0644); err != nil {
+		t.Fatalf("write project instructions: %v", err)
+	}
+
+	s := New()
+	s.ProjectRoot = root
+	// Simulate a global chat being active
+	s.ActiveChat = &Chat{Global: true}
+
+	block, err := s.BuildInstructionsBlock()
+	if err != nil {
+		t.Fatalf("BuildInstructionsBlock error: %v", err)
+	}
+	if !strings.Contains(block, "global\n") {
+		t.Fatalf("missing global instructions content")
+	}
+	if strings.Contains(block, "project\n") {
+		t.Fatalf("global chat should NOT include project instructions")
+	}
+	if strings.Contains(block, "<project-instructions") {
+		t.Fatalf("global chat should NOT have project-instructions tag")
+	}
+}
+
 func TestBuildInstructionsBlock_WrapsContent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

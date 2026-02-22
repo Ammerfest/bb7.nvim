@@ -41,7 +41,10 @@ M.session_state = {
 -- 'display' is for title brackets (matches the keymap), 'key' is the actual keymap
 -- footer_fn returns string for bottom-right display (or nil for none)
 M.PANES = {
-  { id = 1, display = 'g1', key = 'g1', name = 'Chats',    title_fn = function() return 'Chats' end,
+  { id = 1, display = 'g1', key = 'g1', name = 'Chats',    title_fn = function()
+      if panes_chats.is_viewing_global() then return 'Global Chats' end
+      return 'Chats'
+    end,
     footer_fn = function()
       local info = panes_chats.get_selection_info()
       if info then return info.selected .. ' of ' .. info.total end

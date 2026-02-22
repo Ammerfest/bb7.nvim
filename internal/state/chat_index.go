@@ -16,12 +16,18 @@ type chatIndex struct {
 	Chats        []ChatSummary `json:"chats"`
 }
 
-func (s *State) chatIndexPath() string {
-	return filepath.Join(s.chatsDir(), "index.json")
+// chatIndexPathFor returns the index.json path for a given chats directory.
+func chatIndexPathFor(chatsDir string) string {
+	return filepath.Join(chatsDir, "index.json")
 }
 
-func (s *State) loadChatIndex() (chatIndex, error) {
-	file, err := os.Open(s.chatIndexPath())
+func (s *State) chatIndexPath() string {
+	return chatIndexPathFor(s.chatsDir())
+}
+
+// loadChatIndexFrom reads and decodes the chat index from a chats directory.
+func loadChatIndexFrom(chatsDir string) (chatIndex, error) {
+	file, err := os.Open(chatIndexPathFor(chatsDir))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return chatIndex{}, ErrFileNotFound
@@ -44,7 +50,12 @@ func (s *State) loadChatIndex() (chatIndex, error) {
 	return idx, nil
 }
 
-func (s *State) writeChatIndex(idx chatIndex) error {
+func (s *State) loadChatIndex() (chatIndex, error) {
+	return loadChatIndexFrom(s.chatsDir())
+}
+
+// writeChatIndexTo writes the chat index to a chats directory.
+func writeChatIndexTo(chatsDir string, idx chatIndex) error {
 	idx.Version = chatIndexVersion
 	sort.Slice(idx.Chats, func(i, j int) bool {
 		return idx.Chats[i].Created.After(idx.Chats[j].Created)
@@ -54,17 +65,21 @@ func (s *State) writeChatIndex(idx chatIndex) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.chatIndexPath(), data, 0644)
+	return os.WriteFile(chatIndexPathFor(chatsDir), data, 0644)
 }
 
-// ensureChatIndex validates the chat index and repairs it if needed.
-func (s *State) ensureChatIndex() (chatIndex, error) {
-	idx, err := s.loadChatIndex()
+func (s *State) writeChatIndex(idx chatIndex) error {
+	return writeChatIndexTo(s.chatsDir(), idx)
+}
+
+// ensureChatIndexAt validates the chat index in a chats directory and repairs it if needed.
+func ensureChatIndexAt(chatsDir string) (chatIndex, error) {
+	idx, err := loadChatIndexFrom(chatsDir)
 	if err != nil {
 		idx = chatIndex{Version: chatIndexVersion}
 	}
 
-	entries, readErr := os.ReadDir(s.chatsDir())
+	entries, readErr := os.ReadDir(chatsDir)
 	if readErr != nil {
 		if errors.Is(err, ErrFileNotFound) {
 			return idx, nil
@@ -87,7 +102,7 @@ func (s *State) ensureChatIndex() (chatIndex, error) {
 			continue
 		}
 		chatID := entry.Name()
-		chatPath := s.chatJSONPath(chatID)
+		chatPath := filepath.Join(chatsDir, chatID, "chat.json")
 		if _, statErr := os.Stat(chatPath); statErr != nil {
 			if errors.Is(statErr, os.ErrNotExist) {
 				if _, ok := seen[chatID]; ok {
@@ -101,7 +116,7 @@ func (s *State) ensureChatIndex() (chatIndex, error) {
 		if _, ok := seen[chatID]; ok {
 			continue
 		}
-		summary, summaryErr := s.loadChatSummary(chatID)
+		summary, summaryErr := loadChatSummaryFrom(filepath.Join(chatsDir, chatID, "chat.json"))
 		if summaryErr != nil {
 			changed = true
 			continue
@@ -116,7 +131,7 @@ func (s *State) ensureChatIndex() (chatIndex, error) {
 	}
 
 	if changed {
-		if writeErr := s.writeChatIndex(idx); writeErr != nil {
+		if writeErr := writeChatIndexTo(chatsDir, idx); writeErr != nil {
 			return idx, writeErr
 		}
 	}
@@ -124,13 +139,18 @@ func (s *State) ensureChatIndex() (chatIndex, error) {
 	return idx, nil
 }
 
-// updateChatIndexEntry updates or inserts a chat summary in the index.
-func (s *State) updateChatIndexEntry(chat *Chat) error {
+// ensureChatIndex validates the project chat index and repairs it if needed.
+func (s *State) ensureChatIndex() (chatIndex, error) {
+	return ensureChatIndexAt(s.chatsDir())
+}
+
+// updateChatIndexEntryAt updates or inserts a chat summary in the index at a chats directory.
+func updateChatIndexEntryAt(chatsDir string, chat *Chat) error {
 	if chat == nil {
 		return nil
 	}
 
-	idx, err := s.ensureChatIndex()
+	idx, err := ensureChatIndexAt(chatsDir)
 	if err != nil {
 		return err
 	}
@@ -152,27 +172,36 @@ func (s *State) updateChatIndexEntry(chat *Chat) error {
 		})
 	}
 
-	return s.writeChatIndex(idx)
+	return writeChatIndexTo(chatsDir, idx)
 }
 
-// saveActiveChatID persists the active chat ID to the index.
-// Best-effort; errors are silently ignored.
-func (s *State) saveActiveChatID(id string) {
-	idx, err := s.ensureChatIndex()
+// updateChatIndexEntry updates or inserts a chat summary in the project index.
+func (s *State) updateChatIndexEntry(chat *Chat) error {
+	return updateChatIndexEntryAt(s.chatsDir(), chat)
+}
+
+// saveActiveChatIDAt persists the active chat ID to the index at a chats directory.
+func saveActiveChatIDAt(chatsDir string, id string) {
+	idx, err := ensureChatIndexAt(chatsDir)
 	if err != nil {
 		return
 	}
 	idx.ActiveChatID = id
-	s.writeChatIndex(idx)
+	writeChatIndexTo(chatsDir, idx)
 }
 
-// removeChatIndexEntry removes a chat from the index.
-func (s *State) removeChatIndexEntry(chatID string) error {
+// saveActiveChatID persists the active chat ID to the project index.
+func (s *State) saveActiveChatID(id string) {
+	saveActiveChatIDAt(s.chatsDir(), id)
+}
+
+// removeChatIndexEntryAt removes a chat from the index at a chats directory.
+func removeChatIndexEntryAt(chatsDir string, chatID string) error {
 	if chatID == "" {
 		return nil
 	}
 
-	idx, err := s.ensureChatIndex()
+	idx, err := ensureChatIndexAt(chatsDir)
 	if err != nil {
 		return err
 	}
@@ -186,5 +215,34 @@ func (s *State) removeChatIndexEntry(chatID string) error {
 	}
 	idx.Chats = filtered
 
-	return s.writeChatIndex(idx)
+	return writeChatIndexTo(chatsDir, idx)
+}
+
+// removeChatIndexEntry removes a chat from the project index.
+func (s *State) removeChatIndexEntry(chatID string) error {
+	return removeChatIndexEntryAt(s.chatsDir(), chatID)
+}
+
+// loadChatSummaryFrom reads chat.json and extracts only summary fields.
+func loadChatSummaryFrom(chatJSONPath string) (ChatSummary, error) {
+	file, err := os.Open(chatJSONPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ChatSummary{}, ErrChatNotFound
+		}
+		return ChatSummary{}, err
+	}
+	defer file.Close()
+
+	var summary chatSummaryFile
+	dec := json.NewDecoder(file)
+	if err := dec.Decode(&summary); err != nil {
+		return ChatSummary{}, err
+	}
+
+	return ChatSummary{
+		ID:      summary.ID,
+		Name:    summary.Name,
+		Created: summary.Created,
+	}, nil
 }

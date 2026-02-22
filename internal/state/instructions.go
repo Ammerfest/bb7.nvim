@@ -147,6 +147,7 @@ func (s *State) PrepareInstructionsFile(level string, defaultSystemPrompt string
 
 // BuildInstructionsBlock returns the formatted instructions block for LLM injection.
 // Returns empty string if no instruction files exist.
+// For global chats, only global instructions are included (no project instructions).
 func (s *State) BuildInstructionsBlock() (string, error) {
 	var result string
 
@@ -161,6 +162,11 @@ func (s *State) BuildInstructionsBlock() (string, error) {
 			result += "\n"
 		}
 		result += "</user-instructions>\n\n"
+	}
+
+	// Skip project instructions for global chats
+	if s.ActiveChat != nil && s.ActiveChat.Global {
+		return result, nil
 	}
 
 	projectContent, err := s.LoadProjectInstructions()

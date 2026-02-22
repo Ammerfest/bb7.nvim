@@ -244,3 +244,13 @@ func TestGetLocalPathRequiresActiveChat(t *testing.T) {
 		t.Errorf("Expected ErrNoActiveChat, got %v", err)
 	}
 }
+
+func TestWriteOutputFileGlobalChat(t *testing.T) {
+	s := setupGlobalTestState(t)
+	s.ChatNewGlobal("test")
+
+	err := s.WriteOutputFile("result.go", "package result")
+	if err != ErrGlobalReadOnly {
+		t.Errorf("Expected ErrGlobalReadOnly for global chat, got %v", err)
+	}
+}

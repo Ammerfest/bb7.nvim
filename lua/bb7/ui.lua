@@ -821,6 +821,19 @@ function M.open()
         if not active or not active.id then
           return
         end
+        -- If active chat is global, switch chats pane to global mode
+        if active.global then
+          panes_chats.set_global_mode(true)
+          panes_chats.refresh(function()
+            client.request({ action = 'chat_get' }, function(chat, chat_err)
+              if not chat_err and chat and chat.id then
+                panes_chats.set_active_by_id(chat.id)
+                apply_chat_to_panes(chat)
+              end
+            end)
+          end)
+          return
+        end
         client.request({ action = 'chat_get' }, function(chat, chat_err)
           if not chat_err and chat and chat.id then
             -- Backend has an active chat - sync frontend state
@@ -878,8 +891,13 @@ function M.open()
     end
 
     -- Set project root for per-project data
-    panes_chats.set_project_root(project_root)
-    panes_provider.set_project_root(project_root)
+    if client.is_global_only() then
+      panes_chats.set_global_mode(true)
+      -- Don't set project root on provider — prevents creating .bb7/ in cwd
+    else
+      panes_chats.set_project_root(project_root)
+      panes_provider.set_project_root(project_root)
+    end
     panes_chats.refresh(on_chats_refreshed)
   end)
 

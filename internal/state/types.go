@@ -154,7 +154,8 @@ type Chat struct {
 	Created         time.Time     `json:"created"`
 	Model           string        `json:"model"`
 	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
-	Draft           string        `json:"draft,omitempty"` // Unsent message draft
+	Global          bool          `json:"global,omitempty"` // If true, this is a global chat (stored in ~/.bb7/chats/)
+	Draft           string        `json:"draft,omitempty"`  // Unsent message draft
 	ContextFiles    []ContextFile `json:"context_files"`
 	Messages        []Message     `json:"messages"`
 }
@@ -164,6 +165,8 @@ type ChatSummary struct {
 	ID      string    `json:"id"`
 	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
+	Global  bool      `json:"global,omitempty"` // If true, this is a global chat
+	Locked  bool      `json:"locked,omitempty"` // If true, chat is locked by another process
 }
 
 // ChatSearchResult represents a chat that matched a search query.

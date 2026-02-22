@@ -22,9 +22,15 @@ func fatalProjectEscape(projectRoot, dest string) {
 
 // WriteOutputFile writes an LLM-generated file to the output directory.
 // Returns ErrReadOnly if the file is marked as read-only in context.
+// Returns ErrGlobalReadOnly if the active chat is global.
 func (s *State) WriteOutputFile(path, content string) error {
 	if err := s.requireActiveChat(); err != nil {
 		return err
+	}
+
+	// Global chats cannot write files
+	if s.ActiveChat.Global {
+		return ErrGlobalReadOnly
 	}
 
 	// Validate path doesn't contain null bytes
