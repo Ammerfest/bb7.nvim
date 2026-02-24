@@ -33,6 +33,9 @@ var titlePrompt string
 //go:embed version.txt
 var version string
 
+// buildCommit is set via -ldflags or falls back to VCS info from debug.ReadBuildInfo.
+var buildCommit string
+
 //go:embed write_file_prompt.txt
 var writeFilePrompt string
 
@@ -80,11 +83,46 @@ func makeMarker(label string, ch rune) string {
 	return strings.Repeat(string(ch), left) + text + strings.Repeat(string(ch), right)
 }
 
+// getBuildCommit returns the short commit hash, resolving from VCS build info if needed.
+func getBuildCommit() string {
+	if buildCommit != "" {
+		return buildCommit
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, setting := range info.Settings {
+		if setting.Key == "vcs.revision" && len(setting.Value) >= 7 {
+			return setting.Value[:7]
+		}
+	}
+	return ""
+}
+
+func versionString() string {
+	v := strings.TrimSpace(version)
+	if commit := getBuildCommit(); commit != "" {
+		return v + " (" + commit + ")"
+	}
+	return v
+}
+
 func main() {
-	// Handle --version flag
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("bb7 %s\n", strings.TrimSpace(version))
-		return
+	// Handle --version / --build flags
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v":
+			fmt.Printf("bb7 %s\n", versionString())
+			return
+		case "--build":
+			if commit := getBuildCommit(); commit != "" {
+				fmt.Println(commit)
+			} else {
+				fmt.Println("unknown")
+			}
+			return
+		}
 	}
 
 	defer appState.Cleanup()
@@ -859,7 +897,7 @@ func handleRequest(line string) {
 		respond(reqID, map[string]any{"type": "ok"})
 
 	case "version":
-		respond(reqID, map[string]any{"type": "version", "version": strings.TrimSpace(version)})
+		respond(reqID, map[string]any{"type": "version", "version": versionString()})
 
 	case "bb7_init":
 		projectRoot, _ := req["project_root"].(string)
@@ -1359,6 +1397,9 @@ func handleRequest(line string) {
 	case "estimate_tokens":
 		handleEstimateTokens(reqID, req)
 
+	case "estimate_text_tokens":
+		handleEstimateTextTokens(reqID, req)
+
 	case "send":
 		if !reserveActiveStream(reqID) {
 			respond(reqID, map[string]any{"type": "error", "message": "Another request is already in progress"})
@@ -1544,6 +1585,23 @@ func handleEstimateTokens(reqID string, req map[string]any) {
 		"input_text":        estimate.InputText,
 		"files":             estimate.Files,
 		"potential_savings": estimate.PotentialSavings,
+	})
+}
+
+func handleEstimateTextTokens(reqID string, req map[string]any) {
+	textsRaw, ok := req["texts"].([]any)
+	if !ok || len(textsRaw) == 0 {
+		respond(reqID, map[string]any{"type": "error", "message": "Missing or empty 'texts' array"})
+		return
+	}
+	tokens := make([]int, len(textsRaw))
+	for i, v := range textsRaw {
+		s, _ := v.(string)
+		tokens[i] = llm.EstimateTokensSimple(s)
+	}
+	respond(reqID, map[string]any{
+		"type":   "text_token_estimate",
+		"tokens": tokens,
 	})
 }
 

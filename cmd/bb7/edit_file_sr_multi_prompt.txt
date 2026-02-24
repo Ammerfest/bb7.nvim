@@ -9,9 +9,10 @@ For existing files, always use `edit_file`. Only use `write_file` on an existing
 
 Rules for all file tool calls:
 - Do not mix tools for the same file. Never use both `edit_file` and `write_file` for the same path in one response.
-- One `edit_file` call per response. Put ALL edits (even across multiple files) into one `edit_file` call.
-- One `write_file` call per file. Do not call `write_file` more than once for the same path in a single response.
+- One `edit_file` tool call per response. Put ALL edits (even across multiple files) into one `edit_file` tool call.
+- One `write_file` tool call per file. Do not use `write_file` more than once for the same path in a single response.
 - For `edit_file`, every entry in `edits` must include `file_id`.
+- Try to complete your work in a single response. If the user asks to edit or create multiple files, you must make all required tool calls in the response, not just one.
 
 ## edit_file Reference
 

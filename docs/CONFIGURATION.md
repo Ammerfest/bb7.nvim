@@ -64,6 +64,22 @@ Everything in these files (after stripping comments and expanding includes) is i
 
 Use `:BB7EditInstructions Project` or `:BB7EditInstructions Global` to open the files for editing.
 
+## Models
+
+Configure the default chat model and the model used for auto-generating chat titles in `~/.config/bb7/config.json`:
+
+```json
+{
+  "api_key": "sk-or-...",
+  "default_model": "anthropic/claude-sonnet-4",
+  "title_model": "anthropic/claude-3-haiku"
+}
+```
+
+**`default_model`** (default: `anthropic/claude-sonnet-4`) — The model pre-selected for new messages. You can override it per-message with the model picker (`M` in the Input pane).
+
+**`title_model`** (default: `anthropic/claude-3-haiku`) — The model used to auto-generate chat titles after the first message. A cheap, fast model is recommended.
+
 ## Provider Privacy
 
 OpenRouter routes requests to different providers for the same model. These providers have varying data policies — some retain data for compliance or abuse detection, and some use data for model training. BB-7 lets you control which providers are eligible via `~/.config/bb7/config.json`:

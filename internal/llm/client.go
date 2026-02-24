@@ -320,9 +320,6 @@ func ParseEditFileArgs(argsJSON string) (*EditFileArgs, error) {
 	if args.Path == "" {
 		return nil, errors.New("edit_file: missing path")
 	}
-	if args.OldString == "" {
-		return nil, errors.New("edit_file: missing old_string")
-	}
 	if args.OldString == args.NewString {
 		return nil, errors.New("edit_file: old_string and new_string are identical (no-op)")
 	}
@@ -345,9 +342,6 @@ func ParseEditFileMultiArgs(argsJSON string) (*EditFileMultiArgs, error) {
 	for i, edit := range args.Edits {
 		if edit.Path == "" {
 			return nil, fmt.Errorf("edit_file: edit %d: missing path", i)
-		}
-		if edit.OldString == "" {
-			return nil, fmt.Errorf("edit_file: edit %d: missing old_string", i)
 		}
 		if edit.OldString == edit.NewString {
 			continue // skip no-op

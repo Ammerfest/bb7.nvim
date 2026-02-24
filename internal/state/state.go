@@ -75,7 +75,9 @@ func (s *State) Init(projectRoot string) error {
 		// Best-effort restore of last active global chat.
 		idx, err := loadChatIndexFrom(s.globalChatsDir())
 		if err == nil && idx.ActiveChatID != "" {
-			s.ChatSelectGlobal(idx.ActiveChatID)
+			if _, selErr := s.ChatSelectGlobal(idx.ActiveChatID); selErr != nil {
+				saveActiveChatIDAt(s.globalChatsDir(), "")
+			}
 		}
 		return nil
 	}
@@ -99,7 +101,15 @@ func (s *State) Init(projectRoot string) error {
 	// Best-effort restore of last active chat.
 	idx, err := s.loadChatIndex()
 	if err == nil && idx.ActiveChatID != "" {
-		s.ChatSelect(idx.ActiveChatID)
+		if idx.ActiveChatGlobal {
+			if _, selErr := s.ChatSelectGlobal(idx.ActiveChatID); selErr != nil {
+				s.saveActiveChatID("")
+			}
+		} else {
+			if _, selErr := s.ChatSelect(idx.ActiveChatID); selErr != nil {
+				s.saveActiveChatID("")
+			}
+		}
 	}
 
 	return nil

@@ -994,6 +994,9 @@ func (s *State) ChatSelectGlobal(id string) (*Chat, error) {
 
 	s.ActiveChat = chat
 	saveActiveChatIDAt(s.globalChatsDir(), chat.ID)
+	if s.ProjectRoot != "" {
+		s.saveActiveGlobalChatID(chat.ID)
+	}
 	return chat, nil
 }
 
@@ -1013,6 +1016,9 @@ func (s *State) ChatDeleteGlobal(id string) error {
 		s.releasePreviousLock()
 		s.ActiveChat = nil
 		saveActiveChatIDAt(s.globalChatsDir(), "")
+		if s.ProjectRoot != "" {
+			s.saveActiveChatID("")
+		}
 	}
 
 	if err := os.RemoveAll(chatDir); err != nil {

@@ -8,11 +8,12 @@ You have two file tools. `edit_file` is your primary tool:
 For existing files, always use `edit_file`. Only use `write_file` on an existing file if you are replacing it with entirely different content (different structure, different purpose). When in doubt, use `edit_file`.
 
 Rules for all file tool calls:
-- One file per call. Each call targets exactly one file path.
+- One file per tool call. Each tool call targets exactly one file path.
 - Do not mix tools for the same file. Never use both `edit_file` and `write_file` for the same path in one response.
-- Multiple `edit_file` calls for the same file ARE allowed. Each call sees the result of prior calls.
-- One `write_file` call per file. Do not call `write_file` more than once for the same path in a single response.
+- Multiple `edit_file` tool calls for the same file ARE allowed. Each tool call sees the result of prior ones.
+- One `write_file` tool call per file. Do not use `write_file` more than once for the same path in a single response.
 - For `edit_file`, `file_id` is required.
+- Try to complete your work in a single response. If the user asks to edit or create multiple files, you must make all required tool calls in the response, not just one.
 
 ## edit_file Reference
 

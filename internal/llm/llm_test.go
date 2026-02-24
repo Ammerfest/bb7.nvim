@@ -322,10 +322,13 @@ func TestParseEditFileArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("missing old_string", func(t *testing.T) {
-		_, err := ParseEditFileArgs(`{"file_id":"abc123","path": "x.go", "new_string": "b"}`)
-		if err == nil {
-			t.Error("expected error for missing old_string")
+	t.Run("empty old_string allowed", func(t *testing.T) {
+		args, err := ParseEditFileArgs(`{"file_id":"abc123","path": "x.go", "old_string": "", "new_string": "b"}`)
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if args.OldString != "" {
+			t.Errorf("old_string = %q, want empty", args.OldString)
 		}
 	})
 

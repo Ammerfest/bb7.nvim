@@ -236,6 +236,10 @@ local function setup_common_keymaps(pane_id, buf)
 
   -- Close with Esc (vim-native, no need to document)
   vim.keymap.set('n', '<Esc>', function()
+    if vim.v.hlsearch == 1 then
+      vim.cmd('nohlsearch')
+      return
+    end
     M.close()
   end, opts)
 

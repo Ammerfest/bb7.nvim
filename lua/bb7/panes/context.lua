@@ -36,6 +36,7 @@ local STATUS_DISPLAY = {
   S = ' S ',       -- section (partial file, immutable)
   ['~'] = ' ~ ',   -- out of sync (local changed)
   ['~M'] = '~M ',  -- out of sync + LLM modified (conflict)
+  ['~R'] = '~R ',  -- out of sync + read-only
 }
 
 -- Status highlight groups
@@ -47,6 +48,7 @@ local STATUS_HL = {
   R = nil,      -- black/normal
   S = 'BB7StatusM',  -- sections use comment color like M
   ['~'] = nil,  -- black/normal
+  ['~R'] = nil, -- black/normal
   ['~M'] = nil, -- handled specially in render (~ black, M comment)
 }
 
@@ -357,8 +359,12 @@ local function build_file_list(callback)
         end
       end
 
-      if entry.readonly and entry.status == '' then
-        entry.status = 'R'
+      if entry.readonly then
+        if entry.status == '' then
+          entry.status = 'R'
+        elseif entry.status == '~' then
+          entry.status = '~R'
+        end
       end
 
       pending_checks = pending_checks - 1

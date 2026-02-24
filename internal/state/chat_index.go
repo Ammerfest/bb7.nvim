@@ -11,9 +11,10 @@ import (
 const chatIndexVersion = 1
 
 type chatIndex struct {
-	Version      int           `json:"version"`
-	ActiveChatID string        `json:"active_chat_id,omitempty"`
-	Chats        []ChatSummary `json:"chats"`
+	Version         int           `json:"version"`
+	ActiveChatID    string        `json:"active_chat_id,omitempty"`
+	ActiveChatGlobal bool         `json:"active_chat_global,omitempty"`
+	Chats           []ChatSummary `json:"chats"`
 }
 
 // chatIndexPathFor returns the index.json path for a given chats directory.
@@ -190,9 +191,26 @@ func saveActiveChatIDAt(chatsDir string, id string) {
 	writeChatIndexTo(chatsDir, idx)
 }
 
-// saveActiveChatID persists the active chat ID to the project index.
+// saveActiveChatID persists the active chat ID to the project index and clears the global flag.
 func (s *State) saveActiveChatID(id string) {
-	saveActiveChatIDAt(s.chatsDir(), id)
+	idx, err := s.ensureChatIndex()
+	if err != nil {
+		return
+	}
+	idx.ActiveChatID = id
+	idx.ActiveChatGlobal = false
+	s.writeChatIndex(idx)
+}
+
+// saveActiveGlobalChatID persists a global chat ID to the project index with the global flag set.
+func (s *State) saveActiveGlobalChatID(id string) {
+	idx, err := s.ensureChatIndex()
+	if err != nil {
+		return
+	}
+	idx.ActiveChatID = id
+	idx.ActiveChatGlobal = id != ""
+	s.writeChatIndex(idx)
 }
 
 // removeChatIndexEntryAt removes a chat from the index at a chats directory.

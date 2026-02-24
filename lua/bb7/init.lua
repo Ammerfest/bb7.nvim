@@ -222,9 +222,143 @@ function M.setup(opts)
     end
 
     -- Get file path (from argument or current buffer)
-    local arg = opts.args ~= '' and opts.args or vim.fn.expand('%:p')
+    local arg = opts.args ~= '' and opts.args or nil
+    if not arg then
+      -- No explicit argument — check for oil buffer
+      if vim.bo.filetype == 'oil' then
+        local ok, oil = pcall(require, 'oil')
+        if not ok then
+          log.warn('oil.nvim not available')
+          return
+        end
+        local entry = oil.get_cursor_entry()
+        if not entry then
+          log.warn('No file selected')
+          return
+        end
+        local dir = oil.get_current_dir(0)
+        if not dir then
+          log.warn('Cannot resolve path (remote oil buffers not supported)')
+          return
+        end
+        local utils = require('bb7.utils')
+
+        if entry.type == 'directory' then
+          -- Directory add: scan, estimate tokens, confirm
+          local dir_path = dir .. entry.name .. '/'
+          local scanned = utils.scan_directory(dir_path)
+          if #scanned == 0 then
+            log.info('No text files found in directory')
+            return
+          end
+
+          -- Build texts list for token estimation
+          local texts = {}
+          for _, file in ipairs(scanned) do
+            table.insert(texts, file.content)
+          end
+
+          -- Request token estimates in parallel with current context estimate
+          local results = { text_estimate = nil, context_estimate = nil }
+          local pending = 2
+
+          local function check_done()
+            pending = pending - 1
+            if pending > 0 then return end
+
+            -- Both responses received
+            local new_tokens = 0
+            if results.text_estimate and results.text_estimate.tokens then
+              for _, t in ipairs(results.text_estimate.tokens) do
+                new_tokens = new_tokens + t
+              end
+            end
+
+            local models = require('bb7.models')
+            local model_info = models.get_model_info()
+            local context_length = model_info and model_info.context_length or 200000
+            local current_estimate = results.context_estimate and results.context_estimate.total or 0
+            local new_total = current_estimate + new_tokens
+            local pct = new_total / context_length * 100
+
+            local function format_pct(val)
+              if val > 0 and val < 1 then
+                return string.format('%.1f', val)
+              end
+              return tostring(math.floor(val))
+            end
+
+            -- Check threshold (80% of context)
+            if new_total > 0.8 * context_length then
+              vim.schedule(function()
+                utils.info({
+                  'Directory too large for context',
+                  '  ' .. entry.name .. '/',
+                  #scanned .. ' files (~' .. utils.format_tokens(new_tokens) .. ' tokens)',
+                  'Context: ~' .. utils.format_tokens(current_estimate) .. ' → ~' .. utils.format_tokens(new_total) .. ' tokens (' .. format_pct(pct) .. '% of ' .. utils.format_tokens(context_length) .. ')',
+                })
+              end)
+              return
+            end
+
+            -- Build confirmation
+            local label = read_only
+              and 'Add ' .. #scanned .. ' files (~' .. utils.format_tokens(new_tokens) .. ' tokens) as read-only?'
+              or  'Add ' .. #scanned .. ' files (~' .. utils.format_tokens(new_tokens) .. ' tokens) to context?'
+            local context_line = 'Context: ~' .. utils.format_tokens(current_estimate) .. ' → ~' .. utils.format_tokens(new_total) .. ' tokens (' .. format_pct(pct) .. '% of ' .. utils.format_tokens(context_length) .. ')'
+
+            vim.schedule(function()
+              utils.confirm({ label, '  ' .. entry.name .. '/', context_line }, function()
+                -- Add files sequentially
+                local added = 0
+                for _, file in ipairs(scanned) do
+                  add_context_file({ args = file.path, range = 0 }, read_only)
+                  added = added + 1
+                end
+                log.info('Added ' .. added .. ' files')
+              end)
+            end)
+          end
+
+          client.request({ action = 'estimate_text_tokens', texts = texts }, function(resp, err)
+            if err then
+              log.error('Token estimation failed: ' .. err)
+              return
+            end
+            results.text_estimate = resp
+            check_done()
+          end)
+
+          client.request({ action = 'estimate_tokens' }, function(resp, err)
+            if err then
+              -- Non-fatal: proceed without current estimate
+              results.context_estimate = { total = 0 }
+            else
+              results.context_estimate = resp
+            end
+            check_done()
+          end)
+          return
+        end
+
+        -- Single file add from oil
+        local oil_path = dir .. entry.name
+        local label = read_only and 'Add (read-only) to BB-7 context:' or 'Add to BB-7 context:'
+        utils.confirm({ label, '  ' .. entry.name }, function()
+          add_context_file({ args = oil_path, range = 0 }, read_only)
+        end)
+        return
+      end
+      arg = vim.fn.expand('%:p')
+    end
     if arg == '' then
       log.warn('No file to add')
+      return
+    end
+
+    -- Reject special buffer schemes (e.g. fugitive://, term://, etc.)
+    if arg:match('^%w+://') then
+      log.warn('Cannot add special buffer: ' .. arg:match('^(%w+)://'))
       return
     end
 
@@ -241,6 +375,20 @@ function M.setup(opts)
     if project_root and path:sub(1, #project_root) == project_root then
       path = path:sub(#project_root + 2)  -- +2 to skip the trailing slash
     end
+
+    -- Check for binary file
+    local utils = require('bb7.utils')
+    if utils.is_binary_file(full_path) then
+      log.info('BB-7 does not support binary files')
+      return
+    end
+    -- Verify file is readable
+    local f = io.open(full_path, 'rb')
+    if not f then
+      log.error('Cannot read file: ' .. path)
+      return
+    end
+    f:close()
 
     -- Read file content
     local all_lines = vim.fn.readfile(full_path)
@@ -357,18 +505,125 @@ function M.setup(opts)
       return
     end
 
+    -- Helper to make path relative to project root
+    local function make_relative(p)
+      local project_root = client.get_project_root()
+      if project_root and p:sub(1, #project_root) == project_root then
+        return p:sub(#project_root + 2)
+      end
+      return p
+    end
+
+    -- Helper to remove a single file
+    local function remove_file(path)
+      client.request({ action = 'context_remove', path = path }, function(_, err)
+        if err then
+          if err:match('[Nn]ot found') then return end
+          log.error(err)
+          return
+        end
+        log.info('Removed ' .. path)
+      end)
+    end
+
     -- Get file path (from argument or current buffer)
-    local path = opts.args ~= '' and opts.args or vim.fn.expand('%:p')
-    if path == '' then
+    local arg = opts.args ~= '' and opts.args or nil
+    if not arg then
+      -- No explicit argument — check for oil buffer
+      if vim.bo.filetype == 'oil' then
+        local ok, oil = pcall(require, 'oil')
+        if not ok then
+          log.warn('oil.nvim not available')
+          return
+        end
+        local entry = oil.get_cursor_entry()
+        if not entry then
+          log.warn('No file selected')
+          return
+        end
+        local dir = oil.get_current_dir(0)
+        if not dir then
+          log.warn('Cannot resolve path (remote oil buffers not supported)')
+          return
+        end
+        local utils = require('bb7.utils')
+
+        if entry.type == 'directory' then
+          -- Directory remove: find all context files under this directory
+          local dir_path = dir .. entry.name .. '/'
+          local rel_prefix = make_relative(dir_path)
+
+          client.request({ action = 'chat_get' }, function(chat_resp, get_err)
+            if get_err and get_err:match('[Nn]o active chat') then
+              log.info('No active chat - select a chat first')
+              return
+            end
+
+            client.request({ action = 'context_list' }, function(resp, list_err)
+              if list_err then
+                log.error(list_err)
+                return
+              end
+              -- Filter files under this directory
+              local matches = {}
+              for _, file in ipairs(resp.files or {}) do
+                local fp = file.path or file
+                if fp:sub(1, #rel_prefix) == rel_prefix then
+                  table.insert(matches, fp)
+                end
+              end
+
+              if #matches == 0 then
+                log.info('No context files in this directory')
+                return
+              end
+
+              -- Build confirmation lines
+              local lines = { 'Remove ' .. #matches .. ' files from BB-7 context?', '  ' .. entry.name .. '/' }
+              local max_show = 8
+              for i, fp in ipairs(matches) do
+                if i > max_show then
+                  table.insert(lines, '  +' .. (#matches - max_show) .. ' more')
+                  break
+                end
+                table.insert(lines, '  ' .. fp)
+              end
+
+              vim.schedule(function()
+                utils.confirm(lines, function()
+                  for _, fp in ipairs(matches) do
+                    remove_file(fp)
+                  end
+                  log.info('Removed ' .. #matches .. ' files')
+                end)
+              end)
+            end)
+          end)
+          return
+        end
+
+        -- Single file remove from oil
+        local oil_path = make_relative(dir .. entry.name)
+        utils.confirm({ 'Remove from BB-7 context:', '  ' .. entry.name }, function()
+          -- Check for active chat first
+          client.request({ action = 'chat_get' }, function(_, get_err)
+            if get_err and get_err:match('[Nn]o active chat') then
+              log.info('No active chat - select a chat first')
+              return
+            end
+            remove_file(oil_path)
+          end)
+        end)
+        return
+      end
+      arg = vim.fn.expand('%:p')
+    end
+    if arg == '' then
       log.warn('No file to remove')
       return
     end
 
-    -- Make path relative to project root if possible (skip in global-only mode)
-    local project_root = client.get_project_root()
-    if project_root and path:sub(1, #project_root) == project_root then
-      path = path:sub(#project_root + 2)
-    end
+    local path = make_relative(arg)
 
     -- Check for active chat first (user must manually select)
     client.request({ action = 'chat_get' }, function(_, get_err)
@@ -378,17 +633,7 @@ function M.setup(opts)
       end
 
       -- Send to backend
-      client.request({ action = 'context_remove', path = path }, function(_, err)
-        if err then
-          -- Silently ignore "not found" (no-op for idempotency)
-          if err:match('[Nn]ot found') then
-            return
-          end
-          log.error(err)
-          return
-        end
-        log.info('Removed ' .. path)
-      end)
+      remove_file(path)
     end)
   end, {
     nargs = '?',

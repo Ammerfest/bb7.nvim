@@ -24,12 +24,17 @@ func Replace(content, oldString, newString string, replaceAll bool) (string, err
 		return "", fmt.Errorf("old_string and new_string are identical (no-op)")
 	}
 
+	// Empty old_string: only valid when the file is empty (add content to empty file)
+	if oldString == "" {
+		trimmed := strings.TrimRight(content, "\n\r \t")
+		if trimmed != "" {
+			return "", fmt.Errorf("old_string is empty but file has content")
+		}
+		return newString, nil
+	}
+
 	lines := SplitLines(content)
 	oldLines := SplitLines(oldString)
-
-	if len(oldLines) == 0 {
-		return "", fmt.Errorf("old_string is empty")
-	}
 
 	// 3-pass line-based matching, same as findAnchor
 	type matchResult struct {

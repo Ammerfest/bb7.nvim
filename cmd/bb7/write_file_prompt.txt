@@ -2,6 +2,7 @@
 
 Your file tool is `write_file`. Use it to create new files and to modify existing files.
 
-- Complete files only: Every `write_file` call must contain the complete file content.
-- One file per call. Each call targets exactly one file path.
-- One call per file. Do not call `write_file` more than once for the same path in a single response.
+- Complete files only: Every `write_file` tool call must contain the complete file content.
+- One file per tool call. Each tool call targets exactly one file path.
+- One tool call per file. Do not use `write_file` more than once for the same path in a single response.
+- Try to complete your work in a single response. If the user asks to edit or create multiple files, you must make all required tool calls in the response, not just one.
