@@ -123,11 +123,14 @@ func (s *State) addInternalFile(relPath, content string, readOnly bool) error {
 		Version:  version,
 	})
 
-	return s.addContextEvent(ContextEvent{
-		Action:   "UserAddFile",
+	ro := readOnly
+	ext := false
+	return s.addContextEvent(MessagePart{
+		Type:     PartTypeContextEvent,
+		Action:   ActionUserAddFile,
 		Path:     relPath,
-		ReadOnly: readOnly,
-		External: false,
+		ReadOnly: &ro,
+		External: &ext,
 		Version:  version,
 	})
 }
@@ -157,11 +160,14 @@ func (s *State) addExternalFile(absPath, content string) error {
 		Version:  version,
 	})
 
-	return s.addContextEvent(ContextEvent{
-		Action:   "UserAddFile",
+	ro := true
+	ext := true
+	return s.addContextEvent(MessagePart{
+		Type:     PartTypeContextEvent,
+		Action:   ActionUserAddFile,
 		Path:     absPath,
-		ReadOnly: true,
-		External: true,
+		ReadOnly: &ro,
+		External: &ext,
 		Version:  version,
 	})
 }
@@ -265,12 +271,13 @@ func (s *State) ContextAddSection(path string, startLine, endLine int, content s
 		EndLine:   endLine,
 	})
 
-	readOnly := true
-	return s.addContextEvent(ContextEvent{
-		Action:    "UserAddSection",
+	ro := true
+	return s.addContextEvent(MessagePart{
+		Type:      PartTypeContextEvent,
+		Action:    ActionUserAddSection,
 		Path:      normalizedPath,
-		ReadOnly:  readOnly,
-		External:  isExternal,
+		ReadOnly:  &ro,
+		External:  &isExternal,
 		Version:   version,
 		StartLine: startLine,
 		EndLine:   endLine,
@@ -304,11 +311,14 @@ func (s *State) ContextRemove(path string) error {
 		s.ActiveChat.ContextFiles[idx+1:]...,
 	)
 
-	return s.addContextEvent(ContextEvent{
-		Action:   "UserRemoveFile",
+	ro := cf.ReadOnly
+	ext := cf.External
+	return s.addContextEvent(MessagePart{
+		Type:     PartTypeContextEvent,
+		Action:   ActionUserRemoveFile,
 		Path:     cf.Path,
-		ReadOnly: cf.ReadOnly,
-		External: cf.External,
+		ReadOnly: &ro,
+		External: &ext,
 		Version:  version,
 	})
 }
@@ -339,11 +349,14 @@ func (s *State) ContextRemoveSection(path string, startLine, endLine int) error 
 		s.ActiveChat.ContextFiles[idx+1:]...,
 	)
 
-	return s.addContextEvent(ContextEvent{
-		Action:    "UserRemoveSection",
+	ro := cf.ReadOnly
+	ext := cf.External
+	return s.addContextEvent(MessagePart{
+		Type:      PartTypeContextEvent,
+		Action:    ActionUserRemoveSection,
 		Path:      cf.Path,
-		ReadOnly:  cf.ReadOnly,
-		External:  cf.External,
+		ReadOnly:  &ro,
+		External:  &ext,
 		Version:   version,
 		StartLine: startLine,
 		EndLine:   endLine,
@@ -390,11 +403,14 @@ func (s *State) ContextSetReadOnly(path string, readOnly bool) error {
 	}
 
 	cf.ReadOnly = readOnly
-	return s.addContextEvent(ContextEvent{
-		Action:   "UserSetReadOnly",
+	ro := cf.ReadOnly
+	ext := cf.External
+	return s.addContextEvent(MessagePart{
+		Type:     PartTypeContextEvent,
+		Action:   ActionUserSetReadOnly,
 		Path:     cf.Path,
-		ReadOnly: cf.ReadOnly,
-		External: cf.External,
+		ReadOnly: &ro,
+		External: &ext,
 		Version:  version,
 	})
 }
@@ -430,11 +446,14 @@ func (s *State) ContextUpdate(path, content string) error {
 
 	cf.Version = HashFileVersion(cf.Path, content)
 
-	return s.addContextEvent(ContextEvent{
-		Action:      "UserWriteFile",
+	ro := cf.ReadOnly
+	ext := cf.External
+	return s.addContextEvent(MessagePart{
+		Type:        PartTypeContextEvent,
+		Action:      ActionUserWriteFile,
 		Path:        cf.Path,
-		ReadOnly:    cf.ReadOnly,
-		External:    cf.External,
+		ReadOnly:    &ro,
+		External:    &ext,
 		Version:     cf.Version,
 		PrevVersion: prevVersion,
 	})

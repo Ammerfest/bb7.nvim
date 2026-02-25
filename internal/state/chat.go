@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// generateID creates a random 6-character hex ID.
+// generateID creates a random 10-character hex ID.
 func generateID() (string, error) {
-	b := make([]byte, 3)
+	b := make([]byte, 5)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
@@ -48,6 +48,7 @@ func (s *State) ChatNew(name string) (*Chat, error) {
 	}
 
 	chat := &Chat{
+		Version:      CurrentChatVersion,
 		ID:           id,
 		Name:         name,
 		Created:      created,
@@ -218,7 +219,7 @@ func (s *State) ChatRename(id, name string) error {
 	return nil
 }
 
-// loadChat reads a chat from disk.
+// loadChat reads a chat from disk, migrating it if needed.
 func (s *State) loadChat(id string) (*Chat, error) {
 	data, err := os.ReadFile(s.chatJSONPath(id))
 	if err != nil {
@@ -231,6 +232,11 @@ func (s *State) loadChat(id string) (*Chat, error) {
 	var chat Chat
 	if err := json.Unmarshal(data, &chat); err != nil {
 		return nil, err
+	}
+
+	if migrateChat(&chat) {
+		// Re-save in new format (lazy migration).
+		_ = s.saveChat(&chat)
 	}
 
 	return &chat, nil
@@ -273,7 +279,7 @@ func (s *State) AddSystemMessage(content string) error {
 	}
 	msg := Message{
 		Role:      "system",
-		Content:   content,
+		Parts:     []MessagePart{{Type: PartTypeText, Content: content}},
 		Timestamp: time.Now().UTC(),
 	}
 	s.ActiveChat.Messages = append(s.ActiveChat.Messages, msg)
@@ -301,7 +307,7 @@ func (s *State) AddUserMessage(content, model string) error {
 
 	msg := Message{
 		Role:            "user",
-		Content:         content,
+		Parts:           []MessagePart{{Type: PartTypeText, Content: content}},
 		Model:           model,
 		Timestamp:       time.Now().UTC(),
 		ContextSnapshot: snapshot,
@@ -312,8 +318,7 @@ func (s *State) AddUserMessage(content, model string) error {
 }
 
 // AddAssistantMessage adds an assistant message to the active chat.
-// If parts are provided, they are used; otherwise content is used for backward compatibility.
-func (s *State) AddAssistantMessage(content string, parts []MessagePart, outputFiles []string, model string, usage *MessageUsage) error {
+func (s *State) AddAssistantMessage(parts []MessagePart, outputFiles []string, model string, usage *MessageUsage) error {
 	if err := s.requireActiveChat(); err != nil {
 		return err
 	}
@@ -321,15 +326,10 @@ func (s *State) AddAssistantMessage(content string, parts []MessagePart, outputF
 	msg := Message{
 		Role:        "assistant",
 		Model:       model,
+		Parts:       parts,
 		Timestamp:   time.Now().UTC(),
 		OutputFiles: outputFiles,
 		Usage:       usage,
-	}
-
-	if len(parts) > 0 {
-		msg.Parts = parts
-	} else {
-		msg.Content = content
 	}
 
 	s.ActiveChat.Messages = append(s.ActiveChat.Messages, msg)
@@ -538,6 +538,7 @@ func (s *State) ForkChat(chatID string, forkIndex int) (*ForkChatResult, error) 
 	}
 
 	newChat := &Chat{
+		Version:         CurrentChatVersion,
 		ID:              newID,
 		Name:            newName,
 		Created:         time.Now().UTC(),
@@ -663,13 +664,12 @@ func (s *State) ForkChat(chatID string, forkIndex int) (*ForkChatResult, error) 
 	if len(warnings) > 0 {
 		var parts []MessagePart
 		for _, w := range warnings {
-			// Action includes issue type: "ForkWarningModified" or "ForkWarningDeleted"
-			action := "ForkWarningModified"
+			action := ActionForkWarningModified
 			if w.Issue == "deleted" {
-				action = "ForkWarningDeleted"
+				action = ActionForkWarningDeleted
 			}
 			parts = append(parts, MessagePart{
-				Type:    "context_event",
+				Type:    PartTypeContextEvent,
 				Action:  action,
 				Path:    w.Path,
 				Version: w.OriginalVersion,
@@ -836,12 +836,12 @@ func (s *State) EditUserMessage(msgIndex int, content string) ([]ContextWarning,
 	if len(warnings) > 0 {
 		var parts []MessagePart
 		for _, w := range warnings {
-			action := "ForkWarningModified"
+			action := ActionForkWarningModified
 			if w.Issue == "deleted" {
-				action = "ForkWarningDeleted"
+				action = ActionForkWarningDeleted
 			}
 			parts = append(parts, MessagePart{
-				Type:    "context_event",
+				Type:    PartTypeContextEvent,
 				Action:  action,
 				Path:    w.Path,
 				Version: w.OriginalVersion,
@@ -870,7 +870,7 @@ func saveChatAt(chatDir string, chat *Chat) error {
 	return os.WriteFile(chatPath, data, 0644)
 }
 
-// loadChatFrom reads a chat from a specific chat.json path.
+// loadChatFrom reads a chat from a specific chat.json path, migrating it if needed.
 func loadChatFrom(chatJSONPath string) (*Chat, error) {
 	data, err := os.ReadFile(chatJSONPath)
 	if err != nil {
@@ -883,6 +883,14 @@ func loadChatFrom(chatJSONPath string) (*Chat, error) {
 	var chat Chat
 	if err := json.Unmarshal(data, &chat); err != nil {
 		return nil, err
+	}
+
+	if migrateChat(&chat) {
+		// Re-save in new format (lazy migration).
+		newData, err := json.MarshalIndent(&chat, "", "  ")
+		if err == nil {
+			_ = os.WriteFile(chatJSONPath, newData, 0644)
+		}
 	}
 
 	return &chat, nil
@@ -905,6 +913,7 @@ func (s *State) ChatNewGlobal(name string) (*Chat, error) {
 	}
 
 	chat := &Chat{
+		Version:      CurrentChatVersion,
 		ID:           id,
 		Name:         name,
 		Created:      created,
@@ -1177,6 +1186,7 @@ func (s *State) ForkChatGlobal(chatID string, forkIndex int) (*ForkChatResult, e
 	}
 
 	newChat := &Chat{
+		Version:         CurrentChatVersion,
 		ID:              newID,
 		Name:            newName,
 		Created:         time.Now().UTC(),
@@ -1306,12 +1316,12 @@ func (s *State) ForkChatGlobal(chatID string, forkIndex int) (*ForkChatResult, e
 	if len(warnings) > 0 {
 		var parts []MessagePart
 		for _, w := range warnings {
-			action := "ForkWarningModified"
+			action := ActionForkWarningModified
 			if w.Issue == "deleted" {
-				action = "ForkWarningDeleted"
+				action = ActionForkWarningDeleted
 			}
 			parts = append(parts, MessagePart{
-				Type:    "context_event",
+				Type:    PartTypeContextEvent,
 				Action:  action,
 				Path:    w.Path,
 				Version: w.OriginalVersion,

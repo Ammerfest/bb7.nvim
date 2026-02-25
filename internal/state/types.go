@@ -1,26 +1,58 @@
 package state
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// PartType identifies the kind of a MessagePart.
+type PartType string
+
+const (
+	PartTypeText         PartType = "text"
+	PartTypeCode         PartType = "code"
+	PartTypeRaw          PartType = "raw"
+	PartTypeThinking     PartType = "thinking"
+	PartTypeContextEvent PartType = "context_event"
+	PartTypeFile         PartType = "file"
+)
+
+// ContextAction identifies the action recorded in a context_event part.
+type ContextAction string
+
+const (
+	ActionUserAddFile         ContextAction = "UserAddFile"
+	ActionUserAddSection      ContextAction = "UserAddSection"
+	ActionUserRemoveFile      ContextAction = "UserRemoveFile"
+	ActionUserRemoveSection   ContextAction = "UserRemoveSection"
+	ActionUserSetReadOnly     ContextAction = "UserSetReadOnly"
+	ActionUserWriteFile       ContextAction = "UserWriteFile"
+	ActionUserApplyFile       ContextAction = "UserApplyFile"
+	ActionUserPartialApply    ContextAction = "UserPartialApplyFile"
+	ActionUserSaveAs          ContextAction = "UserSaveAs"
+	ActionUserRejectOutput    ContextAction = "UserRejectOutput"
+	ActionAssistantWriteFile  ContextAction = "AssistantWriteFile"
+	ActionForkWarningModified ContextAction = "ForkWarningModified"
+	ActionForkWarningDeleted  ContextAction = "ForkWarningDeleted"
+)
+
 // MessagePart represents a structured piece of message content.
 type MessagePart struct {
-	Type         string `json:"type"`                    // "text", "code", "raw", "thinking", "context_event"
-	Content      string `json:"content,omitempty"`       // content for text/code/raw/thinking
-	Language     string `json:"language,omitempty"`      // for "code" type
-	Path         string `json:"path,omitempty"`          // for "context_event" type
-	Added        bool   `json:"added,omitempty"`         // for "context_event" type: true if new file (AssistantWriteFile)
-	Action       string `json:"action,omitempty"`        // for "context_event" type
-	ReadOnly     *bool  `json:"readonly,omitempty"`      // for "context_event" type
-	External     *bool  `json:"external,omitempty"`      // for "context_event" type
-	Version      string `json:"version,omitempty"`       // for "context_event" type
-	PrevVersion  string `json:"prev_version,omitempty"`  // for "context_event" type
-	OriginalPath string `json:"original_path,omitempty"` // for "context_event" type: original path when saved elsewhere
-	StartLine    int    `json:"start_line,omitempty"`    // for "context_event" type: section start line
-	EndLine      int    `json:"end_line,omitempty"`      // for "context_event" type: section end line
+	Type         PartType      `json:"type"`                    // part kind
+	Content      string        `json:"content,omitempty"`       // content for text/code/raw/thinking
+	Language     string        `json:"language,omitempty"`      // for "code" type
+	Path         string        `json:"path,omitempty"`          // for "context_event" type
+	Added        bool          `json:"added,omitempty"`         // for "context_event" type: true if new file (AssistantWriteFile)
+	Action       ContextAction `json:"action,omitempty"`        // for "context_event" type
+	ReadOnly     *bool         `json:"readonly,omitempty"`      // for "context_event" type
+	External     *bool         `json:"external,omitempty"`      // for "context_event" type
+	Version      string        `json:"version,omitempty"`       // for "context_event" type
+	PrevVersion  string        `json:"prev_version,omitempty"`  // for "context_event" type
+	OriginalPath string        `json:"original_path,omitempty"` // for "context_event" type: original path when saved elsewhere
+	StartLine    int           `json:"start_line,omitempty"`    // for "context_event" type: section start line
+	EndLine      int           `json:"end_line,omitempty"`      // for "context_event" type: section end line
 }
 
 // MessageUsage contains token counts and cost for a message.
@@ -37,8 +69,7 @@ type MessageUsage struct {
 type Message struct {
 	Role            string           `json:"role"`                       // "user", "assistant", or "system"
 	Model           string           `json:"model,omitempty"`            // model used (assistant) or requested (user)
-	Parts           []MessagePart    `json:"parts,omitempty"`            // structured content (new)
-	Content         string           `json:"content,omitempty"`          // raw content (backward compat)
+	Parts           []MessagePart    `json:"parts,omitempty"`            // structured content
 	Timestamp       time.Time        `json:"timestamp"`
 	OutputFiles     []string         `json:"output_files,omitempty"`     // assistant only
 	Usage           *MessageUsage    `json:"usage,omitempty"`            // token usage and cost (assistant only)
@@ -46,17 +77,29 @@ type Message struct {
 	ContextSnapshot []ContextFileRef `json:"context_snapshot,omitempty"` // context state at send time (user messages only)
 }
 
-// HasParts returns true if the message uses structured parts.
-func (m *Message) HasParts() bool {
-	return len(m.Parts) > 0
+// UnmarshalJSON handles backward compatibility with the legacy Content field.
+// Old chat.json files have "content" on messages; this converts it to Parts on load.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	// Use an alias to avoid infinite recursion.
+	type messageAlias Message
+	type messageWithLegacy struct {
+		messageAlias
+		Content string `json:"content"`
+	}
+	var raw messageWithLegacy
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = Message(raw.messageAlias)
+	// Migrate legacy Content into Parts.
+	if raw.Content != "" && len(m.Parts) == 0 {
+		m.Parts = []MessagePart{{Type: PartTypeText, Content: raw.Content}}
+	}
+	return nil
 }
 
-// MessageText returns a text representation of a message.
-// Prefers Content; otherwise concatenates relevant parts.
+// MessageText returns a text representation of a message by concatenating its parts.
 func MessageText(m Message) string {
-	if m.Content != "" {
-		return m.Content
-	}
 	if len(m.Parts) == 0 {
 		return ""
 	}
@@ -64,7 +107,7 @@ func MessageText(m Message) string {
 	var b strings.Builder
 	for _, part := range m.Parts {
 		switch part.Type {
-		case "text", "thinking", "code", "raw":
+		case PartTypeText, PartTypeThinking, PartTypeCode, PartTypeRaw:
 			if part.Content == "" {
 				continue
 			}
@@ -72,7 +115,7 @@ func MessageText(m Message) string {
 				b.WriteString("\n")
 			}
 			b.WriteString(part.Content)
-		case "context_event":
+		case PartTypeContextEvent:
 			formatted := formatContextEvent(part)
 			if formatted == "" {
 				continue
@@ -96,7 +139,7 @@ func formatContextEvent(part MessagePart) string {
 	b.WriteString("[context_event")
 	if part.Action != "" {
 		b.WriteString(" action=")
-		b.WriteString(part.Action)
+		b.WriteString(string(part.Action))
 	}
 	if part.Path != "" {
 		b.WriteString(" path=")
@@ -149,6 +192,7 @@ type ContextFile struct {
 
 // Chat represents a single chat session with its messages and context.
 type Chat struct {
+	Version         int           `json:"version"`
 	ID              string        `json:"id"`
 	Name            string        `json:"name"`
 	Created         time.Time     `json:"created"`

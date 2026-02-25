@@ -508,8 +508,8 @@ func appendAssistantWriteParts(parts []state.MessagePart, outputFiles []string, 
 		}
 		isNew := cf == nil
 		parts = append(parts, state.MessagePart{
-			Type:     "context_event",
-			Action:   "AssistantWriteFile",
+			Type:     state.PartTypeContextEvent,
+			Action:   state.ActionAssistantWriteFile,
 			Path:     path,
 			ReadOnly: &readOnly,
 			External: &external,
@@ -1742,7 +1742,7 @@ func handleSend(reqID string, req map[string]any) {
 
 	logLLMMessage("SYSTEM", fullSystemPrompt, activeChatID, model)
 	logLLMMessage("USER", body, activeChatID, model)
-	messages := []llm.Message{{
+	messages := []llm.APIMessage{{
 		Role:    "user",
 		Content: body,
 	}}
@@ -1827,7 +1827,7 @@ func handleSend(reqID string, req map[string]any) {
 		if err == nil {
 			logLLMMessage("SYSTEM", fullSystemPrompt, activeChatID, model)
 			logLLMMessage("USER", retryBody, activeChatID, model)
-			retryMessages := []llm.Message{{
+			retryMessages := []llm.APIMessage{{
 				Role:    "user",
 				Content: retryBody,
 			}}
@@ -1934,13 +1934,13 @@ func handleSend(reqID string, req map[string]any) {
 				var cancelParts []state.MessagePart
 				if thinkingContent.Len() > 0 {
 					cancelParts = append(cancelParts, state.MessagePart{
-						Type:    "thinking",
+						Type:    state.PartTypeThinking,
 						Content: thinkingContent.String(),
 					})
 				}
 				if textContent.Len() > 0 {
 					cancelParts = append(cancelParts, state.MessagePart{
-						Type:    "text",
+						Type:    state.PartTypeText,
 						Content: textContent.String(),
 					})
 				}
@@ -1959,7 +1959,7 @@ func handleSend(reqID string, req map[string]any) {
 				}
 				stateMu.Unlock()
 				stateMu.Lock()
-				if addErr := appState.AddAssistantMessage("", cancelParts, cancelOutputFiles, model, nil); addErr != nil {
+				if addErr := appState.AddAssistantMessage(cancelParts, cancelOutputFiles, model, nil); addErr != nil {
 					log.Error("Failed to save partial assistant message: %v", addErr)
 				} else if reasoningConfig != nil {
 					msgs := appState.ActiveChat.Messages
@@ -1990,13 +1990,13 @@ func handleSend(reqID string, req map[string]any) {
 		var diffErrParts []state.MessagePart
 		if thinkingContent.Len() > 0 {
 			diffErrParts = append(diffErrParts, state.MessagePart{
-				Type:    "thinking",
+				Type:    state.PartTypeThinking,
 				Content: thinkingContent.String(),
 			})
 		}
 		if textContent.Len() > 0 {
 			diffErrParts = append(diffErrParts, state.MessagePart{
-				Type:    "text",
+				Type:    state.PartTypeText,
 				Content: textContent.String(),
 			})
 		}
@@ -2016,7 +2016,7 @@ func handleSend(reqID string, req map[string]any) {
 
 		// Save assistant message without file events and with nil output files
 		stateMu.Lock()
-		if addErr := appState.AddAssistantMessage("", diffErrParts, nil, model, msgUsage); addErr != nil {
+		if addErr := appState.AddAssistantMessage(diffErrParts, nil, model, msgUsage); addErr != nil {
 			log.Error("Failed to save assistant message on diff error: %v", addErr)
 		} else if reasoningConfig != nil {
 			msgs := appState.ActiveChat.Messages
@@ -2061,13 +2061,13 @@ func handleSend(reqID string, req map[string]any) {
 	// Build final parts: thinking first, then text content, then file events at the end
 	if textContent.Len() > 0 {
 		parts = append([]state.MessagePart{{
-			Type:    "text",
+			Type:    state.PartTypeText,
 			Content: textContent.String(),
 		}}, parts...)
 	}
 	if thinkingContent.Len() > 0 {
 		parts = append([]state.MessagePart{{
-			Type:    "thinking",
+			Type:    state.PartTypeThinking,
 			Content: thinkingContent.String(),
 		}}, parts...)
 	}
@@ -2092,7 +2092,7 @@ func handleSend(reqID string, req map[string]any) {
 
 	// Save assistant message with parts and usage
 	stateMu.Lock()
-	if err := appState.AddAssistantMessage("", parts, outputFiles, model, msgUsage); err != nil {
+	if err := appState.AddAssistantMessage(parts, outputFiles, model, msgUsage); err != nil {
 		stateMu.Unlock()
 		respond(reqID, errorResponse(err))
 		return
@@ -2116,7 +2116,7 @@ func handleSend(reqID string, req map[string]any) {
 			if msg.Role == "user" {
 				userMsgCount++
 				if userMsgCount == 1 {
-					firstUserContent = msg.Content
+					firstUserContent = state.MessageText(msg)
 				}
 			}
 		}
@@ -2156,7 +2156,7 @@ func autoTitleGenerateAsync(chatID, content string, contextFiles []state.Context
 			fullContent = fmt.Sprintf("User message: %s\n\nContext files attached: %s", content, strings.Join(filePaths, ", "))
 		}
 
-		messages := []llm.Message{
+		messages := []llm.APIMessage{
 			{Role: "user", Content: fullContent},
 		}
 
@@ -2270,7 +2270,7 @@ func writeHistoryAction(b *strings.Builder, id int, part state.MessagePart) {
 	var fields []string
 	fields = append(fields, fmt.Sprintf("@action id=%d", id))
 	if part.Action != "" {
-		fields = append(fields, "type="+part.Action)
+		fields = append(fields, "type="+string(part.Action))
 	}
 	if part.Version != "" {
 		fields = append(fields, "file_id="+part.Version)
@@ -2591,7 +2591,7 @@ func buildLLMUserMessageWithOverrides(retryContext *retryContextData, diffMode s
 	var latestContent string
 	var history []state.Message
 	if latestIdx >= 0 {
-		latestContent = chat.Messages[latestIdx].Content
+		latestContent = state.MessageText(chat.Messages[latestIdx])
 		history = chat.Messages[:latestIdx]
 	} else {
 		history = chat.Messages
@@ -2607,27 +2607,22 @@ func buildLLMUserMessageWithOverrides(retryContext *retryContextData, diffMode s
 	var historyBuf strings.Builder
 	entryID := 0
 	for _, msg := range history {
-		if msg.HasParts() {
-			for _, part := range msg.Parts {
-				switch part.Type {
-				case "context_event":
-					writeHistoryAction(&historyBuf, entryID, part)
-					entryID++
-				case "thinking":
-					writeHistoryMessage(&historyBuf, entryID, "assistant", "reasoning", part.Content)
-					entryID++
-				case "text":
-					writeHistoryMessage(&historyBuf, entryID, msg.Role, "", part.Content)
-					entryID++
-				case "code", "raw":
-					writeHistoryMessage(&historyBuf, entryID, msg.Role, part.Type, part.Content)
-					entryID++
-				}
+		for _, part := range msg.Parts {
+			switch part.Type {
+			case state.PartTypeContextEvent:
+				writeHistoryAction(&historyBuf, entryID, part)
+				entryID++
+			case state.PartTypeThinking:
+				writeHistoryMessage(&historyBuf, entryID, "assistant", "reasoning", part.Content)
+				entryID++
+			case state.PartTypeText:
+				writeHistoryMessage(&historyBuf, entryID, msg.Role, "", part.Content)
+				entryID++
+			case state.PartTypeCode, state.PartTypeRaw:
+				writeHistoryMessage(&historyBuf, entryID, msg.Role, string(part.Type), part.Content)
+				entryID++
 			}
-			continue
 		}
-		writeHistoryMessage(&historyBuf, entryID, msg.Role, "", msg.Content)
-		entryID++
 	}
 	if entryID > 0 {
 		writeSectionHeader(&b, "history")

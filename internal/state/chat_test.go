@@ -141,8 +141,8 @@ func TestAddSystemMessage(t *testing.T) {
 	if msg.Role != "system" {
 		t.Errorf("Expected system role, got %q", msg.Role)
 	}
-	if msg.Content != "Request timed out" {
-		t.Errorf("Expected content to be saved, got %q", msg.Content)
+	if MessageText(msg) != "Request timed out" {
+		t.Errorf("Expected content to be saved, got %q", MessageText(msg))
 	}
 }
 
@@ -252,8 +252,8 @@ func TestAddUserMessage(t *testing.T) {
 	if msg.Role != "user" {
 		t.Errorf("Expected role 'user', got %q", msg.Role)
 	}
-	if msg.Content != "Hello" {
-		t.Errorf("Expected content 'Hello', got %q", msg.Content)
+	if MessageText(msg) != "Hello" {
+		t.Errorf("Expected content 'Hello', got %q", MessageText(msg))
 	}
 	if msg.Model != "openai/gpt-5.2" {
 		t.Errorf("Expected model 'openai/gpt-5.2', got %q", msg.Model)
@@ -265,7 +265,7 @@ func TestAddAssistantMessage(t *testing.T) {
 	s.ChatNew("test")
 
 	outputFiles := []string{"foo.go", "bar.go"}
-	if err := s.AddAssistantMessage("Here are the changes", nil, outputFiles, "test-model", nil); err != nil {
+	if err := s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Here are the changes"}}, outputFiles, "test-model", nil); err != nil {
 		t.Fatalf("AddAssistantMessage failed: %v", err)
 	}
 
@@ -290,24 +290,18 @@ func TestAddAssistantMessageWithParts(t *testing.T) {
 	s.ChatNew("test")
 
 	parts := []MessagePart{
-		{Type: "text", Content: "Here's the explanation"},
-		{Type: "code", Language: "go", Content: "fmt.Println(\"hello\")"},
-		{Type: "file", Path: "main.go"},
+		{Type: PartTypeText, Content: "Here's the explanation"},
+		{Type: PartTypeCode, Language: "go", Content: "fmt.Println(\"hello\")"},
+		{Type: PartTypeFile, Path: "main.go"},
 	}
 	outputFiles := []string{"main.go"}
-	if err := s.AddAssistantMessage("", parts, outputFiles, "gpt-4", nil); err != nil {
+	if err := s.AddAssistantMessage(parts, outputFiles, "gpt-4", nil); err != nil {
 		t.Fatalf("AddAssistantMessage failed: %v", err)
 	}
 
 	msg := s.ActiveChat.Messages[0]
-	if !msg.HasParts() {
-		t.Error("Expected message to have parts")
-	}
 	if len(msg.Parts) != 3 {
 		t.Errorf("Expected 3 parts, got %d", len(msg.Parts))
-	}
-	if msg.Content != "" {
-		t.Error("Expected content to be empty when parts are used")
 	}
 }
 
@@ -327,7 +321,7 @@ func TestEditUserMessageTruncates(t *testing.T) {
 	if err := s.AddUserMessage("first", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
 	}
-	if err := s.AddAssistantMessage("resp1", nil, []string{"out1.txt"}, "model", nil); err != nil {
+	if err := s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "resp1"}}, []string{"out1.txt"}, "model", nil); err != nil {
 		t.Fatalf("AddAssistantMessage failed: %v", err)
 	}
 	if err := s.WriteOutputFile("out1.txt", "one"); err != nil {
@@ -336,7 +330,7 @@ func TestEditUserMessageTruncates(t *testing.T) {
 	if err := s.AddUserMessage("second", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
 	}
-	if err := s.AddAssistantMessage("resp2", nil, []string{"out2.txt"}, "model", nil); err != nil {
+	if err := s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "resp2"}}, []string{"out2.txt"}, "model", nil); err != nil {
 		t.Fatalf("AddAssistantMessage failed: %v", err)
 	}
 	if err := s.WriteOutputFile("out2.txt", "two"); err != nil {
@@ -388,7 +382,7 @@ func TestEditUserMessageNonUser(t *testing.T) {
 	if err := s.AddUserMessage("first", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
 	}
-	if err := s.AddAssistantMessage("resp1", nil, nil, "model", nil); err != nil {
+	if err := s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "resp1"}}, nil, "model", nil); err != nil {
 		t.Fatalf("AddAssistantMessage failed: %v", err)
 	}
 
@@ -461,7 +455,7 @@ func TestMessageIsolationBetweenChats(t *testing.T) {
 	// Create first chat with messages
 	chat1, _ := s.ChatNew("chat1")
 	s.AddUserMessage("Hello from chat1", "")
-	s.AddAssistantMessage("Response in chat1", nil, nil, "model1", nil)
+	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response in chat1"}}, nil, "model1", nil)
 
 	// Create second chat with different messages
 	s.ChatNew("chat2")
@@ -471,7 +465,7 @@ func TestMessageIsolationBetweenChats(t *testing.T) {
 	if len(s.ActiveChat.Messages) != 1 {
 		t.Errorf("Chat2 expected 1 message, got %d", len(s.ActiveChat.Messages))
 	}
-	if s.ActiveChat.Messages[0].Content != "Hello from chat2" {
+	if MessageText(s.ActiveChat.Messages[0]) != "Hello from chat2" {
 		t.Error("Chat2 first message wrong")
 	}
 
@@ -480,7 +474,7 @@ func TestMessageIsolationBetweenChats(t *testing.T) {
 	if len(s.ActiveChat.Messages) != 2 {
 		t.Errorf("Chat1 expected 2 messages, got %d", len(s.ActiveChat.Messages))
 	}
-	if s.ActiveChat.Messages[0].Content != "Hello from chat1" {
+	if MessageText(s.ActiveChat.Messages[0]) != "Hello from chat1" {
 		t.Error("Chat1 first message wrong")
 	}
 }
@@ -574,7 +568,7 @@ func TestChatSelectReloadsFromDisk(t *testing.T) {
 	}
 	foundUser := false
 	for _, msg := range loaded.Messages {
-		if msg.Role == "user" && msg.Content == "test message" {
+		if msg.Role == "user" && MessageText(msg) == "test message" {
 			foundUser = true
 		}
 	}
@@ -613,7 +607,7 @@ func TestNoActiveChatOperationsFail(t *testing.T) {
 	if err := s.AddUserMessage("msg", ""); err != ErrNoActiveChat {
 		t.Errorf("AddUserMessage expected ErrNoActiveChat, got %v", err)
 	}
-	if err := s.AddAssistantMessage("msg", nil, nil, "model", nil); err != ErrNoActiveChat {
+	if err := s.AddAssistantMessage(nil, nil, "model", nil); err != ErrNoActiveChat {
 		t.Errorf("AddAssistantMessage expected ErrNoActiveChat, got %v", err)
 	}
 	if _, err := s.GetFileStatuses(); err != ErrNoActiveChat {
@@ -775,9 +769,9 @@ func TestForkChatBasic(t *testing.T) {
 	// Create source chat with messages
 	sourceChat, _ := s.ChatNew("source")
 	s.AddUserMessage("Message 1", "model-1")
-	s.AddAssistantMessage("Response 1", nil, nil, "model-1", nil)
+	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response 1"}}, nil, "model-1", nil)
 	s.AddUserMessage("Message 2", "model-2")
-	s.AddAssistantMessage("Response 2", nil, nil, "model-2", nil)
+	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response 2"}}, nil, "model-2", nil)
 	s.AddUserMessage("Message 3", "model-3")
 
 	// Fork from message 3 (index 4, the last user message)
@@ -819,7 +813,7 @@ func TestForkChatFirstMessage(t *testing.T) {
 	// Create source chat with messages
 	sourceChat, _ := s.ChatNew("source")
 	s.AddUserMessage("First message", "model-1")
-	s.AddAssistantMessage("Response", nil, nil, "model-1", nil)
+	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response"}}, nil, "model-1", nil)
 
 	// Fork from first message (index 0)
 	result, err := s.ForkChat(sourceChat.ID, 0)
@@ -910,7 +904,7 @@ func TestForkChatFromAssistantMessage(t *testing.T) {
 
 	sourceChat, _ := s.ChatNew("source")
 	s.AddUserMessage("Message", "model")
-	s.AddAssistantMessage("Response", nil, nil, "model", nil)
+	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response"}}, nil, "model", nil)
 
 	// Try to fork from assistant message (index 1)
 	_, err := s.ForkChat(sourceChat.ID, 1)

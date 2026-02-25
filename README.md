@@ -235,6 +235,12 @@ Global chats are stored at `~/.bb7/chats/` and are available from any directory,
 
 When you open BB-7 in a directory without a `.bb7` project, it enters global-only mode automatically — only global chats are available.
 
+## Integrations
+
+**Telescope**: Add files to BB-7 context directly from any Telescope picker with `<C-a>`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#telescope-integration) for setup.
+
+**oil.nvim**: `:BB7Add` and `:BB7Remove` work from oil buffers — they operate on the file or directory under the cursor. No configuration needed.
+
 ## Configuration
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for all options, including highlight groups, icons, and instruction files.

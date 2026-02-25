@@ -35,6 +35,24 @@ func New() *State {
 	return &State{}
 }
 
+// validateProjectRoot rejects the home directory as a project root.
+// ~/.bb7 is the global data directory, so initializing a project there
+// would cause the project and global data to overlap.
+func validateProjectRoot(projectRoot string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil // can't check, allow it
+	}
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return nil
+	}
+	if filepath.Clean(absRoot) == filepath.Clean(home) {
+		return errors.New("cannot initialize BB-7 in home directory (conflicts with global data)")
+	}
+	return nil
+}
+
 // ProjectInit creates the .bb7 directory structure (like git init).
 // Returns ErrAlreadyInit if already initialized.
 func (s *State) ProjectInit(projectRoot string) error {
@@ -44,6 +62,10 @@ func (s *State) ProjectInit(projectRoot string) error {
 	}
 	if !info.IsDir() {
 		return errors.New("project_root must be a directory")
+	}
+
+	if err := validateProjectRoot(projectRoot); err != nil {
+		return err
 	}
 
 	bb7Dir := filepath.Join(projectRoot, ".bb7")
@@ -88,6 +110,10 @@ func (s *State) Init(projectRoot string) error {
 	}
 	if !info.IsDir() {
 		return errors.New("project_root must be a directory")
+	}
+
+	if err := validateProjectRoot(projectRoot); err != nil {
+		return err
 	}
 
 	// Check that .bb7 directory exists

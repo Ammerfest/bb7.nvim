@@ -797,8 +797,9 @@ func TestHandleSendIntegrationDuplicateWriteTerminatesStream(t *testing.T) {
 	if msgs[1].Role != "system" {
 		t.Fatalf("expected terminal error to be recorded as system message, got role %q", msgs[1].Role)
 	}
-	if !strings.Contains(msgs[1].Content, "Duplicate write_file for path in single response: dup.go") {
-		t.Fatalf("unexpected system message content: %q", msgs[1].Content)
+	msgText := state.MessageText(msgs[1])
+	if !strings.Contains(msgText, "Duplicate write_file for path in single response: dup.go") {
+		t.Fatalf("unexpected system message content: %q", msgText)
 	}
 }
 

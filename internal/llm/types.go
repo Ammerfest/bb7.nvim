@@ -14,7 +14,7 @@ type ProviderPreferences struct {
 
 type ChatRequest struct {
 	Model          string               `json:"model"`
-	Messages       []Message            `json:"messages"`
+	Messages       []APIMessage            `json:"messages"`
 	Tools          []Tool               `json:"tools,omitempty"`
 	Stream         bool                 `json:"stream"`
 	Reasoning      *ReasoningConfig     `json:"reasoning,omitempty"`
@@ -22,7 +22,7 @@ type ChatRequest struct {
 	PromptCacheKey string               `json:"prompt_cache_key,omitempty"`
 }
 
-type Message struct {
+type APIMessage struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`

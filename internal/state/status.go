@@ -219,11 +219,14 @@ func (s *State) ApplyFile(path string) (string, error) {
 		return "", ErrFileNotFound
 	}
 
-	if err := s.addContextEvent(ContextEvent{
-		Action:      "UserApplyFile",
+	ro := cf.ReadOnly
+	ext := cf.External
+	if err := s.addContextEvent(MessagePart{
+		Type:        PartTypeContextEvent,
+		Action:      ActionUserApplyFile,
 		Path:        cf.Path,
-		ReadOnly:    cf.ReadOnly,
-		External:    cf.External,
+		ReadOnly:    &ro,
+		External:    &ext,
 		Version:     cf.Version,
 		PrevVersion: prevVersion,
 	}); err != nil {
@@ -282,12 +285,15 @@ func (s *State) ApplyFileAs(originalPath, destPath string) (string, error) {
 	}
 
 	// Record the save-as event with both paths
-	if err := s.addContextEvent(ContextEvent{
-		Action:       "UserSaveAs",
+	ro := cf.ReadOnly
+	ext := cf.External
+	if err := s.addContextEvent(MessagePart{
+		Type:         PartTypeContextEvent,
+		Action:       ActionUserSaveAs,
 		Path:         destPath,
 		OriginalPath: originalPath,
-		ReadOnly:     cf.ReadOnly,
-		External:     cf.External,
+		ReadOnly:     &ro,
+		External:     &ext,
 		Version:      cf.Version,
 	}); err != nil {
 		return "", err
@@ -378,11 +384,14 @@ func (s *State) DiffLocalDone(path string) (*DiffLocalDoneResult, error) {
 			}
 			cf.Version = HashFileVersion(cf.Path, localContent)
 
-			if err := s.addContextEvent(ContextEvent{
-				Action:      "UserPartialApplyFile",
+			ro := cf.ReadOnly
+			ext := cf.External
+			if err := s.addContextEvent(MessagePart{
+				Type:        PartTypeContextEvent,
+				Action:      ActionUserPartialApply,
 				Path:        cf.Path,
-				ReadOnly:    cf.ReadOnly,
-				External:    cf.External,
+				ReadOnly:    &ro,
+				External:    &ext,
 				Version:     cf.Version,
 				PrevVersion: prevVersion,
 			}); err != nil {
@@ -418,11 +427,14 @@ func (s *State) DiffLocalDone(path string) (*DiffLocalDoneResult, error) {
 				return nil, ErrFileNotFound
 			}
 
-			if err := s.addContextEvent(ContextEvent{
-				Action:   "UserPartialApplyFile",
+			ro := cf.ReadOnly
+			ext := cf.External
+			if err := s.addContextEvent(MessagePart{
+				Type:     PartTypeContextEvent,
+				Action:   ActionUserPartialApply,
 				Path:     cf.Path,
-				ReadOnly: cf.ReadOnly,
-				External: cf.External,
+				ReadOnly: &ro,
+				External: &ext,
 				Version:  cf.Version,
 				Added:    true,
 			}); err != nil {

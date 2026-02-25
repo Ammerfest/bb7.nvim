@@ -69,10 +69,10 @@ type StreamCallback func(event StreamEvent)
 // The callback is called for each event (content chunks, tool calls, completion).
 // If reasoning is non-nil, extended thinking is enabled with the specified effort level.
 // cacheKey is optional and is sent as prompt_cache_key when explicit cache keys are enabled.
-func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []Message, reasoning *ReasoningConfig, diffMode, cacheKey string, callback StreamCallback) error {
+func (c *Client) ChatStream(ctx context.Context, model, systemPrompt string, messages []APIMessage, reasoning *ReasoningConfig, diffMode, cacheKey string, callback StreamCallback) error {
 	// Prepend system message
-	allMessages := make([]Message, 0, len(messages)+1)
-	allMessages = append(allMessages, Message{
+	allMessages := make([]APIMessage, 0, len(messages)+1)
+	allMessages = append(allMessages, APIMessage{
 		Role:    "system",
 		Content: systemPrompt,
 	})
@@ -357,10 +357,10 @@ func ParseEditFileMultiArgs(argsJSON string) (*EditFileMultiArgs, error) {
 
 // ChatSimple sends a simple chat request without streaming or tools.
 // Returns the assistant's response content.
-func (c *Client) ChatSimple(model, systemPrompt string, messages []Message) (string, error) {
+func (c *Client) ChatSimple(model, systemPrompt string, messages []APIMessage) (string, error) {
 	// Prepend system message
-	allMessages := make([]Message, 0, len(messages)+1)
-	allMessages = append(allMessages, Message{
+	allMessages := make([]APIMessage, 0, len(messages)+1)
+	allMessages = append(allMessages, APIMessage{
 		Role:    "system",
 		Content: systemPrompt,
 	})

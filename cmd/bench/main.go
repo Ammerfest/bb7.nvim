@@ -460,7 +460,7 @@ func runTest(client *llm.Client, model, mode string, tc testCase, index, total i
 
 	// Build user message in the same structured format used by bb7 runtime prompts.
 	userContent := buildBenchmarkUserMessage(tc, files)
-	messages := []llm.Message{
+	messages := []llm.APIMessage{
 		{Role: "user", Content: userContent},
 	}
 

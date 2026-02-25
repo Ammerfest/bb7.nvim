@@ -12,30 +12,14 @@ BB-7 is an external process that manages LLM chat sessions for a Neovim plugin. 
 
 ## Tool Use
 
-BB-7 uses LLM tool use (function calling) with a single, narrowly-scoped tool:
+BB-7 uses LLM tool use (function calling) with two tools:
 
-```json
-{
-  "name": "write_file",
-  "description": "Write content to a file in the output directory for user review.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "path": {
-        "type": "string",
-        "description": "Relative file path (e.g., 'math.cs' or 'src/utils/helper.go')"
-      },
-      "content": {
-        "type": "string",
-        "description": "Complete file content"
-      }
-    },
-    "required": ["path", "content"]
-  }
-}
-```
+- **`write_file`**: Create new files or full-file rewrites (path + complete content)
+- **`edit_file`**: Targeted edits to existing files (search/replace or anchor-based)
 
-This is the only tool available. The LLM cannot:
+The `diff_mode` config controls which `edit_file` schema is exposed (default: `search_replace_multi`). See [DIFFS.md](DIFFS.md) for tool schemas, modes, and configuration.
+
+The LLM cannot:
 - Read files (context is provided explicitly by the user)
 - Execute commands
 - Access the network
@@ -77,6 +61,7 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
 
 ```json
 {
+  "version": 2,
   "id": "abc123",
   "name": "physics-refactor",
   "created": "2025-01-19T22:00:00Z",
@@ -90,7 +75,7 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
   "messages": [
     {
       "role": "user",
-      "content": "Refactor to use ref parameters",
+      "parts": [{"type": "text", "content": "Refactor to use ref parameters"}],
       "model": "anthropic/claude-sonnet-4",
       "timestamp": "2025-01-19T22:01:00Z",
       "context_snapshot": [
@@ -100,7 +85,6 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
     },
     {
       "role": "assistant",
-      "content": "The issue is that World is passed by value...",
       "model": "anthropic/claude-sonnet-4",
       "timestamp": "2025-01-19T22:01:05Z",
       "output_files": ["math.cs"],
@@ -113,13 +97,15 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
 }
 ```
 
+`version` tracks the chat format version. Current version is 2. Old chats (version 0 or 1) are lazily migrated on load: the legacy `content` field on messages is converted into `parts`, then the chat is re-saved.
+
 `draft` stores unsent input text, persisted across sessions and restored when switching chats.
 
 `context_files[*].version` is a client/backend-generated file id: a short (8
 hex chars) SHA-256 hash over `path + NUL + content`. This ensures identical
 content at different paths yields different ids. The LLM never generates file ids.
 
-**Message parts** (for assistant messages):
+All messages use structured `parts` (there is no top-level `content` field on messages). Part types:
 - `text`: Explanation text
 - `thinking`: Reasoning/thinking content (from models with extended thinking)
 - `code`: Code snippet with optional `language` field
@@ -207,13 +193,14 @@ Backend statuses (`M`, `A`, `!A`, `S`) are returned by `get_file_statuses`. Fron
 
 The LLM response contains two parts:
 
-1. **Text content**: Explanation of changes, stored in chat.json as message content
-2. **Tool calls**: `write_file` calls with file path and content
+1. **Text content**: Explanation of changes, stored in chat.json as structured message parts
+2. **Tool calls**: `write_file` and/or `edit_file` calls
 
 BB-7 processes responses as follows:
 - Stream text content to Neovim as `chunk` messages
 - Stream reasoning/thinking content as `thinking` messages (for models with extended thinking)
-- Execute each `write_file` tool call by writing to the output directory
+- Execute `write_file` calls by writing to the output directory
+- Execute `edit_file` calls by applying edits to the output copy of the file (see [DIFFS.md](DIFFS.md))
 - Send `done` message with list of written files and usage stats
 - Store the text content, reasoning, and output file list in chat.json
 

@@ -170,11 +170,11 @@ The `thinking` type delivers reasoning/thinking content from models that support
 
 ```json
 {"type": "chat", "request_id": "5", "id": "abc123", "name": "physics-refactor", "model": "anthropic/claude-sonnet-4", "draft": "", "messages": [
-  {"role": "user", "content": "...", "timestamp": "...", "context_snapshot": [
+  {"role": "user", "parts": [{"type": "text", "content": "..."}], "timestamp": "...", "context_snapshot": [
     {"path": "math.cs", "file_id": "a1b2c3d4"},
     {"path": "utils.cs", "file_id": "e5f6a7b8", "start_line": 10, "end_line": 50}
   ]},
-  {"role": "assistant", "content": "...", "model": "...", "timestamp": "...", "output_files": ["file.cs"], "parts": [...]}
+  {"role": "assistant", "model": "...", "timestamp": "...", "output_files": ["file.cs"], "parts": [...]}
 ], "instructions_info": {
   "global_path": "~/.config/bb7/instructions.md",
   "global_exists": true,

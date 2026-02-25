@@ -2,43 +2,16 @@ package state
 
 import "time"
 
-type ContextEvent struct {
-	Action       string
-	Path         string
-	ReadOnly     bool
-	External     bool
-	Version      string
-	PrevVersion  string
-	OriginalPath string // For UserSaveAs: the path LLM suggested
-	Added        bool   // For AssistantWriteFile: true if new file, false if modified
-	StartLine    int    // For sections: 1-indexed start line
-	EndLine      int    // For sections: 1-indexed end line (inclusive)
-}
-
-func (s *State) addContextEvent(event ContextEvent) error {
+// addContextEvent appends a context_event message to the active chat.
+func (s *State) addContextEvent(part MessagePart) error {
 	if err := s.requireActiveChat(); err != nil {
 		return err
 	}
 
-	readOnly := event.ReadOnly
-	external := event.External
-
 	msg := Message{
 		Role:      "assistant",
 		Timestamp: time.Now().UTC(),
-		Parts: []MessagePart{{
-			Type:         "context_event",
-			Action:       event.Action,
-			Path:         event.Path,
-			ReadOnly:     &readOnly,
-			External:     &external,
-			Version:      event.Version,
-			PrevVersion:  event.PrevVersion,
-			OriginalPath: event.OriginalPath,
-			Added:        event.Added,
-			StartLine:    event.StartLine,
-			EndLine:      event.EndLine,
-		}},
+		Parts:     []MessagePart{part},
 	}
 
 	s.ActiveChat.Messages = append(s.ActiveChat.Messages, msg)
@@ -60,11 +33,12 @@ func (s *State) AssistantWriteFile(path, content string, isNew bool) error {
 		external = cf.External
 	}
 
-	return s.addContextEvent(ContextEvent{
-		Action:   "AssistantWriteFile",
+	return s.addContextEvent(MessagePart{
+		Type:     PartTypeContextEvent,
+		Action:   ActionAssistantWriteFile,
 		Path:     path,
-		ReadOnly: readOnly,
-		External: external,
+		ReadOnly: &readOnly,
+		External: &external,
 		Version:  HashFileVersion(path, content),
 		Added:    isNew,
 	})
@@ -86,11 +60,12 @@ func (s *State) UserRejectOutput(path string) error {
 		prevVersion = cf.Version
 	}
 
-	return s.addContextEvent(ContextEvent{
-		Action:      "UserRejectOutput",
+	return s.addContextEvent(MessagePart{
+		Type:        PartTypeContextEvent,
+		Action:      ActionUserRejectOutput,
 		Path:        path,
-		ReadOnly:    readOnly,
-		External:    external,
+		ReadOnly:    &readOnly,
+		External:    &external,
 		PrevVersion: prevVersion,
 	})
 }
