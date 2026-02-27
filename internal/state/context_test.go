@@ -7,7 +7,7 @@ import (
 
 func TestContextAdd(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.ContextAdd("src/main.go", "package main"); err != nil {
 		t.Fatalf("ContextAdd failed: %v", err)
@@ -32,7 +32,7 @@ func TestContextAdd(t *testing.T) {
 
 func TestContextAddDuplicate(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAdd("foo.go", "content")
 	err := s.ContextAdd("foo.go", "new content")
@@ -62,7 +62,7 @@ func TestContextAddDuplicateCanonicalPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := setupTestState(t)
-			s.ChatNew("test")
+			s.ChatNew("test", "")
 
 			firstPath := "foo.go"
 			secondPath := "foo.go"
@@ -94,7 +94,7 @@ func TestContextAddRequiresActiveChat(t *testing.T) {
 
 func TestContextRemove(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.ContextAdd("foo.go", "content")
 
 	if err := s.ContextRemove("foo.go"); err != nil {
@@ -108,7 +108,7 @@ func TestContextRemove(t *testing.T) {
 
 func TestContextRemoveNotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	err := s.ContextRemove("nonexistent.go")
 	if err != ErrFileNotFound {
@@ -118,7 +118,7 @@ func TestContextRemoveNotFound(t *testing.T) {
 
 func TestContextList(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAdd("a.go", "a")
 	s.ContextAdd("b.go", "b")
@@ -145,7 +145,7 @@ func TestContextListRequiresActiveChat(t *testing.T) {
 
 func TestGetContextFileNotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	_, err := s.GetContextFile("nonexistent.go")
 	if err != ErrFileNotFound {
@@ -155,7 +155,7 @@ func TestGetContextFileNotFound(t *testing.T) {
 
 func TestContextAddPathTraversal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Attempt path traversal
 	err := s.ContextAdd("../../../etc/passwd", "malicious")
@@ -171,7 +171,7 @@ func TestContextAddPathTraversal(t *testing.T) {
 
 func TestContextAddNestedPath(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add file with subdirectory
 	if err := s.ContextAdd("src/utils/helper.go", "package utils"); err != nil {
@@ -196,7 +196,7 @@ func TestContextAddNestedPath(t *testing.T) {
 
 func TestContextAddExternal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add external file (absolute path outside project)
 	externalPath := "/etc/hosts"
@@ -234,7 +234,7 @@ func TestContextAddExternal(t *testing.T) {
 
 func TestContextAddInternalNotReadOnly(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAdd("main.go", "package main")
 
@@ -249,7 +249,7 @@ func TestContextAddInternalNotReadOnly(t *testing.T) {
 
 func TestContextAddInternalReadOnly(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.ContextAddWithReadOnly("main.go", "package main", true); err != nil {
 		t.Fatalf("ContextAddWithReadOnly failed: %v", err)
@@ -266,7 +266,7 @@ func TestContextAddInternalReadOnly(t *testing.T) {
 
 func TestContextSetReadOnly(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.ContextAdd("main.go", "package main"); err != nil {
 		t.Fatalf("ContextAdd failed: %v", err)
@@ -290,7 +290,7 @@ func TestContextSetReadOnly(t *testing.T) {
 
 func TestContextSetReadOnlyExternal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	externalPath := "/etc/hosts"
 	if err := s.ContextAdd(externalPath, "127.0.0.1 localhost"); err != nil {
@@ -304,7 +304,7 @@ func TestContextSetReadOnlyExternal(t *testing.T) {
 
 func TestContextSetReadOnlyWithOutput(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.ContextAdd("main.go", "package main"); err != nil {
 		t.Fatalf("ContextAdd failed: %v", err)
@@ -320,7 +320,7 @@ func TestContextSetReadOnlyWithOutput(t *testing.T) {
 
 func TestContextAddAddsEventAndVersion(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "package main"
 	if err := s.ContextAdd("main.go", content); err != nil {
@@ -359,7 +359,7 @@ func TestContextAddAddsEventAndVersion(t *testing.T) {
 
 func TestContextRemoveAddsEvent(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "package main"
 	if err := s.ContextAdd("main.go", content); err != nil {
@@ -384,7 +384,7 @@ func TestContextRemoveAddsEvent(t *testing.T) {
 
 func TestContextUpdateAddsEvent(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	original := "package main"
 	updated := "package main\n\n// updated"
@@ -414,7 +414,7 @@ func TestContextUpdateAddsEvent(t *testing.T) {
 
 func TestContextSetReadOnlyAddsEvent(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "package main"
 	if err := s.ContextAdd("main.go", content); err != nil {
@@ -442,7 +442,7 @@ func TestContextSetReadOnlyAddsEvent(t *testing.T) {
 
 func TestAssistantWriteFileAddsEvent(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "package main"
 	if err := s.AssistantWriteFile("main.go", content, true); err != nil {
@@ -467,7 +467,7 @@ func TestAssistantWriteFileAddsEvent(t *testing.T) {
 
 func TestHasContextFile(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if s.HasContextFile("main.go") {
 		t.Error("Expected HasContextFile to be false before add")
@@ -491,7 +491,7 @@ func TestHasContextFileNoActiveChat(t *testing.T) {
 
 func TestContextAddSection(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "line 2\nline 3\nline 4"
 	if err := s.ContextAddSection("main.go", 2, 4, content); err != nil {
@@ -522,7 +522,7 @@ func TestContextAddSection(t *testing.T) {
 
 func TestContextAddSectionInvalidLines(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Zero start line
 	err := s.ContextAddSection("main.go", 0, 10, "content")
@@ -545,7 +545,7 @@ func TestContextAddSectionInvalidLines(t *testing.T) {
 
 func TestContextAddSectionDuplicate(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAddSection("main.go", 2, 4, "content")
 	err := s.ContextAddSection("main.go", 2, 4, "different content")
@@ -556,7 +556,7 @@ func TestContextAddSectionDuplicate(t *testing.T) {
 
 func TestContextAddSectionDuplicateCanonicalPath(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	relativePath := "main.go"
 	absolutePath := filepath.Join(s.ProjectRoot, relativePath)
@@ -571,7 +571,7 @@ func TestContextAddSectionDuplicateCanonicalPath(t *testing.T) {
 
 func TestContextAddSectionOverlappingAllowed(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add overlapping sections (allowed per spec)
 	if err := s.ContextAddSection("main.go", 1, 10, "lines 1-10"); err != nil {
@@ -588,7 +588,7 @@ func TestContextAddSectionOverlappingAllowed(t *testing.T) {
 
 func TestContextAddSectionWithFullFile(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add full file first
 	if err := s.ContextAdd("main.go", "full content"); err != nil {
@@ -616,7 +616,7 @@ func TestContextAddSectionWithFullFile(t *testing.T) {
 
 func TestContextRemoveSection(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAddSection("main.go", 2, 4, "content")
 
@@ -631,7 +631,7 @@ func TestContextRemoveSection(t *testing.T) {
 
 func TestContextRemoveSectionNotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	err := s.ContextRemoveSection("main.go", 1, 5)
 	if err != ErrFileNotFound {
@@ -641,7 +641,7 @@ func TestContextRemoveSectionNotFound(t *testing.T) {
 
 func TestContextRemoveSectionWrongLines(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAddSection("main.go", 2, 4, "content")
 
@@ -654,7 +654,7 @@ func TestContextRemoveSectionWrongLines(t *testing.T) {
 
 func TestContextSectionContent(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "line 2\nline 3\nline 4"
 	if err := s.ContextAddSection("main.go", 2, 4, content); err != nil {
@@ -673,7 +673,7 @@ func TestContextSectionContent(t *testing.T) {
 
 func TestContextSectionAddsEvent(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "section content"
 	if err := s.ContextAddSection("main.go", 10, 20, content); err != nil {
@@ -698,7 +698,7 @@ func TestContextSectionAddsEvent(t *testing.T) {
 
 func TestFindContextSection(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAddSection("main.go", 1, 10, "content 1")
 	s.ContextAddSection("main.go", 20, 30, "content 2")
@@ -730,7 +730,7 @@ func TestFindContextSection(t *testing.T) {
 
 func TestContextAddGlobalChat(t *testing.T) {
 	s := setupGlobalTestState(t)
-	s.ChatNewGlobal("test")
+	s.ChatNewGlobal("test", "")
 
 	// Add with absolute path — should be forced read-only and external
 	absPath := "/tmp/test-global-context.go"
@@ -753,7 +753,7 @@ func TestContextAddGlobalChat(t *testing.T) {
 
 func TestContextAddGlobalChatRejectsRelativeWithoutProject(t *testing.T) {
 	s := setupGlobalTestState(t)
-	s.ChatNewGlobal("test")
+	s.ChatNewGlobal("test", "")
 
 	// Relative path with no project root should fail
 	err := s.ContextAdd("main.go", "package main")

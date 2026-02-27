@@ -22,7 +22,7 @@ func setupTestState(t *testing.T) *State {
 func TestChatNew(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("test-chat")
+	chat, err := s.ChatNew("test-chat", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestChatNew(t *testing.T) {
 
 func TestChatNewRequiresInit(t *testing.T) {
 	s := New()
-	_, err := s.ChatNew("test")
+	_, err := s.ChatNew("test", "")
 	if err != ErrNotInitialized {
 		t.Errorf("Expected ErrNotInitialized, got %v", err)
 	}
@@ -60,9 +60,9 @@ func TestChatNewRequiresInit(t *testing.T) {
 func TestChatList(t *testing.T) {
 	s := setupTestState(t)
 
-	s.ChatNew("first")
-	s.ChatNew("second")
-	s.ChatNew("third")
+	s.ChatNew("first", "")
+	s.ChatNew("second", "")
+	s.ChatNew("third", "")
 
 	chats, err := s.ChatList()
 	if err != nil {
@@ -94,8 +94,8 @@ func TestChatListEmpty(t *testing.T) {
 func TestChatSelect(t *testing.T) {
 	s := setupTestState(t)
 
-	chat1, _ := s.ChatNew("first")
-	chat2, _ := s.ChatNew("second")
+	chat1, _ := s.ChatNew("first", "")
+	chat2, _ := s.ChatNew("second", "")
 
 	if s.ActiveChat.ID != chat2.ID {
 		t.Error("Expected chat2 to be active after creation")
@@ -125,7 +125,7 @@ func TestChatSelectNotFound(t *testing.T) {
 func TestAddSystemMessage(t *testing.T) {
 	s := setupTestState(t)
 
-	if _, err := s.ChatNew("test"); err != nil {
+	if _, err := s.ChatNew("test", ""); err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
 
@@ -149,7 +149,7 @@ func TestAddSystemMessage(t *testing.T) {
 func TestChatDelete(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, _ := s.ChatNew("to-delete")
+	chat, _ := s.ChatNew("to-delete", "")
 	chatDir := s.chatDir(chat.ID)
 
 	if err := s.ChatDelete(chat.ID); err != nil {
@@ -177,7 +177,7 @@ func TestChatDeleteNotFound(t *testing.T) {
 func TestChatRename(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, _ := s.ChatNew("old-name")
+	chat, _ := s.ChatNew("old-name", "")
 	if err := s.ChatRename(chat.ID, "new-name"); err != nil {
 		t.Fatalf("ChatRename failed: %v", err)
 	}
@@ -196,8 +196,8 @@ func TestChatRename(t *testing.T) {
 func TestChatRenameInactiveChat(t *testing.T) {
 	s := setupTestState(t)
 
-	chat1, _ := s.ChatNew("chat1")
-	chat2, _ := s.ChatNew("chat2")
+	chat1, _ := s.ChatNew("chat1", "")
+	chat2, _ := s.ChatNew("chat2", "")
 
 	if err := s.ChatRename(chat1.ID, "renamed"); err != nil {
 		t.Fatalf("ChatRename failed: %v", err)
@@ -229,7 +229,7 @@ func TestChatRenameNotFound(t *testing.T) {
 func TestChatRenameEmpty(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, _ := s.ChatNew("chat")
+	chat, _ := s.ChatNew("chat", "")
 	err := s.ChatRename(chat.ID, "   ")
 	if err != ErrChatNameEmpty {
 		t.Errorf("Expected ErrChatNameEmpty, got %v", err)
@@ -238,7 +238,7 @@ func TestChatRenameEmpty(t *testing.T) {
 
 func TestAddUserMessage(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.AddUserMessage("Hello", "openai/gpt-5.2"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
@@ -262,7 +262,7 @@ func TestAddUserMessage(t *testing.T) {
 
 func TestAddAssistantMessage(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	outputFiles := []string{"foo.go", "bar.go"}
 	if err := s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Here are the changes"}}, outputFiles, "test-model", nil); err != nil {
@@ -287,7 +287,7 @@ func TestAddAssistantMessage(t *testing.T) {
 
 func TestAddAssistantMessageWithParts(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	parts := []MessagePart{
 		{Type: PartTypeText, Content: "Here's the explanation"},
@@ -316,7 +316,7 @@ func TestAddMessageRequiresActiveChat(t *testing.T) {
 
 func TestEditUserMessageTruncates(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.AddUserMessage("first", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
@@ -364,7 +364,7 @@ func TestEditUserMessageTruncates(t *testing.T) {
 
 func TestEditUserMessageInvalidIndex(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.AddUserMessage("only", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
@@ -377,7 +377,7 @@ func TestEditUserMessageInvalidIndex(t *testing.T) {
 
 func TestEditUserMessageNonUser(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.AddUserMessage("first", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
@@ -396,12 +396,12 @@ func TestContextIsolationBetweenChats(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create first chat and add context files
-	chat1, _ := s.ChatNew("chat1")
+	chat1, _ := s.ChatNew("chat1", "")
 	s.ContextAdd("file1.go", "package chat1")
 	s.ContextAdd("shared.go", "package shared_v1")
 
 	// Create second chat and add different context files
-	chat2, _ := s.ChatNew("chat2")
+	chat2, _ := s.ChatNew("chat2", "")
 	s.ContextAdd("file2.go", "package chat2")
 	s.ContextAdd("shared.go", "package shared_v2") // Same path, different content
 
@@ -453,12 +453,12 @@ func TestMessageIsolationBetweenChats(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create first chat with messages
-	chat1, _ := s.ChatNew("chat1")
+	chat1, _ := s.ChatNew("chat1", "")
 	s.AddUserMessage("Hello from chat1", "")
 	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response in chat1"}}, nil, "model1", nil)
 
 	// Create second chat with different messages
-	s.ChatNew("chat2")
+	s.ChatNew("chat2", "")
 	s.AddUserMessage("Hello from chat2", "")
 
 	// Verify chat2 messages
@@ -484,12 +484,12 @@ func TestOutputIsolationBetweenChats(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create first chat with output
-	chat1, _ := s.ChatNew("chat1")
+	chat1, _ := s.ChatNew("chat1", "")
 	s.ContextAdd("main.go", "package main_original")
 	s.WriteOutputFile("main.go", "package main_modified_chat1")
 
 	// Create second chat with different output
-	s.ChatNew("chat2")
+	s.ChatNew("chat2", "")
 	s.ContextAdd("main.go", "package main_original")
 	s.WriteOutputFile("main.go", "package main_modified_chat2")
 
@@ -512,8 +512,8 @@ func TestOperationsAffectActiveChat(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create two chats
-	chat1, _ := s.ChatNew("chat1")
-	chat2, _ := s.ChatNew("chat2") // chat2 becomes active
+	chat1, _ := s.ChatNew("chat1", "")
+	chat2, _ := s.ChatNew("chat2", "") // chat2 becomes active
 
 	// Add file to chat2 (currently active)
 	s.ContextAdd("added_to_chat2.go", "package chat2")
@@ -547,12 +547,12 @@ func TestChatSelectReloadsFromDisk(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create chat and add content
-	chat1, _ := s.ChatNew("chat1")
+	chat1, _ := s.ChatNew("chat1", "")
 	s.ContextAdd("file.go", "content")
 	s.AddUserMessage("test message", "")
 
 	// Create another chat (this switches active away from chat1)
-	s.ChatNew("other")
+	s.ChatNew("other", "")
 
 	// Switch back to chat1 - state should be reloaded from disk
 	loaded, _ := s.ChatSelect(chat1.ID)
@@ -582,7 +582,7 @@ func TestNoActiveChatOperationsFail(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create and then delete a chat to have no active chat
-	chat, _ := s.ChatNew("temp")
+	chat, _ := s.ChatNew("temp", "")
 	s.ChatDelete(chat.ID)
 
 	// All these should fail with ErrNoActiveChat
@@ -633,9 +633,9 @@ func TestSearchChatsEmpty(t *testing.T) {
 func TestSearchChatsEmptyQueryReturnsAll(t *testing.T) {
 	s := setupTestState(t)
 
-	s.ChatNew("Physics Chat")
-	s.ChatNew("Math Chat")
-	s.ChatNew("Chemistry Chat")
+	s.ChatNew("Physics Chat", "")
+	s.ChatNew("Math Chat", "")
+	s.ChatNew("Chemistry Chat", "")
 
 	results, err := s.SearchChats("")
 	if err != nil {
@@ -656,9 +656,9 @@ func TestSearchChatsEmptyQueryReturnsAll(t *testing.T) {
 func TestSearchChatsTitleMatch(t *testing.T) {
 	s := setupTestState(t)
 
-	s.ChatNew("Physics Chat")
-	s.ChatNew("Math Chat")
-	s.ChatNew("Chemistry Chat")
+	s.ChatNew("Physics Chat", "")
+	s.ChatNew("Math Chat", "")
+	s.ChatNew("Chemistry Chat", "")
 
 	results, err := s.SearchChats("Physics")
 	if err != nil {
@@ -678,7 +678,7 @@ func TestSearchChatsTitleMatch(t *testing.T) {
 func TestSearchChatsTitleMatchCaseInsensitive(t *testing.T) {
 	s := setupTestState(t)
 
-	s.ChatNew("Physics Chat")
+	s.ChatNew("Physics Chat", "")
 
 	results, err := s.SearchChats("physics")
 	if err != nil {
@@ -693,7 +693,7 @@ func TestSearchChatsContentMatch(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create a chat with a message containing searchable content
-	s.ChatNew("Random Chat")
+	s.ChatNew("Random Chat", "")
 	s.AddUserMessage("Tell me about quantum mechanics", "")
 
 	results, err := s.SearchChats("quantum")
@@ -715,9 +715,9 @@ func TestSearchChatsTitleMatchTakesPriority(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create chat with title that matches
-	s.ChatNew("Quantum Physics")
+	s.ChatNew("Quantum Physics", "")
 	// Create chat with content that matches
-	s.ChatNew("Other Chat")
+	s.ChatNew("Other Chat", "")
 	s.AddUserMessage("This is about quantum computers", "")
 
 	results, err := s.SearchChats("quantum")
@@ -751,7 +751,7 @@ func TestSearchChatsTitleMatchTakesPriority(t *testing.T) {
 func TestSearchChatsNoMatch(t *testing.T) {
 	s := setupTestState(t)
 
-	s.ChatNew("Physics Chat")
+	s.ChatNew("Physics Chat", "")
 	s.AddUserMessage("This is about physics", "")
 
 	results, err := s.SearchChats("biology")
@@ -767,7 +767,7 @@ func TestForkChatBasic(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create source chat with messages
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.AddUserMessage("Message 1", "model-1")
 	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response 1"}}, nil, "model-1", nil)
 	s.AddUserMessage("Message 2", "model-2")
@@ -811,7 +811,7 @@ func TestForkChatFirstMessage(t *testing.T) {
 	s := setupTestState(t)
 
 	// Create source chat with messages
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.AddUserMessage("First message", "model-1")
 	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response"}}, nil, "model-1", nil)
 
@@ -841,7 +841,7 @@ func TestForkChatWithContext(t *testing.T) {
 	os.WriteFile(filepath.Join(s.ProjectRoot, "file2.go"), []byte("package two"), 0644)
 
 	// Create source chat with context files
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.ContextAdd("file1.go", "package one")
 	s.ContextAdd("file2.go", "package two")
 	s.AddUserMessage("Process these files", "model-1")
@@ -883,7 +883,7 @@ func TestForkChatWithContext(t *testing.T) {
 func TestForkChatInvalidIndex(t *testing.T) {
 	s := setupTestState(t)
 
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.AddUserMessage("Message", "model")
 
 	// Test negative index
@@ -902,7 +902,7 @@ func TestForkChatInvalidIndex(t *testing.T) {
 func TestForkChatFromAssistantMessage(t *testing.T) {
 	s := setupTestState(t)
 
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.AddUserMessage("Message", "model")
 	s.AddAssistantMessage([]MessagePart{{Type: PartTypeText, Content: "Response"}}, nil, "model", nil)
 
@@ -932,7 +932,7 @@ func TestForkChatContextIsolation(t *testing.T) {
 	os.WriteFile(filepath.Join(s.ProjectRoot, "shared.go"), []byte("package original"), 0644)
 
 	// Create source chat with context
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.ContextAdd("shared.go", "package original")
 	s.AddUserMessage("Message", "model")
 
@@ -966,7 +966,7 @@ func TestForkChatContextIsolation(t *testing.T) {
 func TestAddUserMessageCapturesContextSnapshot(t *testing.T) {
 	s := setupTestState(t)
 
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.ContextAdd("file1.go", "package one")
 	s.ContextAdd("file2.go", "package two")
 
@@ -1002,7 +1002,7 @@ func TestForkChatDeletedFile(t *testing.T) {
 	os.WriteFile(filePath, []byte("package deleteme"), 0644)
 
 	// Create chat with context file
-	sourceChat, _ := s.ChatNew("source")
+	sourceChat, _ := s.ChatNew("source", "")
 	s.ContextAdd("deleteme.go", "package deleteme")
 	s.AddUserMessage("Process this file", "model")
 
@@ -1035,7 +1035,7 @@ func TestForkChatDeletedFile(t *testing.T) {
 func TestForkChatRejectsEscapedSnapshotPath(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("source")
+	chat, err := s.ChatNew("source", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -1064,7 +1064,7 @@ func TestForkChatRejectsEscapedSnapshotPath(t *testing.T) {
 func TestEditUserMessageRejectsEscapedSnapshotPath(t *testing.T) {
 	s := setupTestState(t)
 
-	if _, err := s.ChatNew("source"); err != nil {
+	if _, err := s.ChatNew("source", ""); err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
 	if err := s.ContextAdd("safe.go", "package safe"); err != nil {
@@ -1099,7 +1099,7 @@ func setupGlobalTestState(t *testing.T) *State {
 func TestChatNewGlobal(t *testing.T) {
 	s := setupGlobalTestState(t)
 
-	chat, err := s.ChatNewGlobal("global-test")
+	chat, err := s.ChatNewGlobal("global-test", "")
 	if err != nil {
 		t.Fatalf("ChatNewGlobal failed: %v", err)
 	}
@@ -1117,8 +1117,8 @@ func TestChatNewGlobal(t *testing.T) {
 func TestChatListGlobal(t *testing.T) {
 	s := setupGlobalTestState(t)
 
-	s.ChatNewGlobal("first")
-	s.ChatNewGlobal("second")
+	s.ChatNewGlobal("first", "")
+	s.ChatNewGlobal("second", "")
 
 	chats, err := s.ChatListGlobal()
 	if err != nil {
@@ -1137,11 +1137,11 @@ func TestChatListGlobal(t *testing.T) {
 func TestChatSelectGlobal(t *testing.T) {
 	s := setupGlobalTestState(t)
 
-	chat, _ := s.ChatNewGlobal("test")
+	chat, _ := s.ChatNewGlobal("test", "")
 	chatID := chat.ID
 
 	// Create another to deselect first
-	s.ChatNewGlobal("other")
+	s.ChatNewGlobal("other", "")
 
 	// Re-select first
 	selected, err := s.ChatSelectGlobal(chatID)
@@ -1173,8 +1173,8 @@ func TestGlobalChatNoProjectRoot(t *testing.T) {
 func TestChatDeleteGlobal(t *testing.T) {
 	s := setupGlobalTestState(t)
 
-	chat, _ := s.ChatNewGlobal("to-delete")
-	s.ChatNewGlobal("keep") // switch away
+	chat, _ := s.ChatNewGlobal("to-delete", "")
+	s.ChatNewGlobal("keep", "") // switch away
 
 	if err := s.ChatDeleteGlobal(chat.ID); err != nil {
 		t.Fatalf("ChatDeleteGlobal failed: %v", err)
@@ -1191,7 +1191,7 @@ func TestChatDeleteGlobal(t *testing.T) {
 func TestChatRenameGlobal(t *testing.T) {
 	s := setupGlobalTestState(t)
 
-	chat, _ := s.ChatNewGlobal("old-name")
+	chat, _ := s.ChatNewGlobal("old-name", "")
 
 	if err := s.ChatRenameGlobal(chat.ID, "new-name"); err != nil {
 		t.Fatalf("ChatRenameGlobal failed: %v", err)
@@ -1208,7 +1208,7 @@ func TestChatRenameGlobal(t *testing.T) {
 func TestForkChatGlobal(t *testing.T) {
 	s := setupGlobalTestState(t)
 
-	chat, _ := s.ChatNewGlobal("source")
+	chat, _ := s.ChatNewGlobal("source", "")
 	if err := s.AddUserMessage("hello", "model"); err != nil {
 		t.Fatalf("AddUserMessage failed: %v", err)
 	}

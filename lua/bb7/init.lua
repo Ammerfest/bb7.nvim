@@ -3,6 +3,37 @@ local M = {}
 local ui = require('bb7.ui')
 local log = require('bb7.log')
 
+--- Ensure the backend is initialized, auto-initializing if needed.
+--- Calls `callback()` on success, or returns silently on failure (with logged error).
+local function ensure_initialized(callback)
+  local client = require('bb7.client')
+  if client.is_initialized() then
+    callback()
+    return
+  end
+  local project_root = vim.fn.getcwd()
+  client.init(project_root, function(resp, init_err)
+    if init_err then
+      log.error('Failed to initialize: ' .. init_err)
+      return
+    end
+    -- Pass config default_model to models module (if backend has one)
+    local models = require('bb7.models')
+    if resp and resp.default_model then
+      models.set_config_default(resp.default_model)
+    end
+    -- Ensure models are loaded
+    if not models.did_refresh_once() then
+      models.init()
+      models.refresh(function()
+        callback()
+      end)
+    else
+      callback()
+    end
+  end)
+end
+
 -- Default configuration
 local default_config = {
   -- Optional direct pane navigation keys (in addition to <C-w>h/j/k/l)
@@ -134,12 +165,9 @@ function M.setup(opts)
 
   -- BB7NewChat - Create a new chat
   vim.api.nvim_create_user_command('BB7NewChat', function()
-    local client = require('bb7.client')
-    if not client.is_initialized() then
-      log.info('Not initialized - open BB-7 first')
-      return
-    end
-    require('bb7.panes.chats').new_chat()
+    ensure_initialized(function()
+      require('bb7.panes.chats').new_chat()
+    end)
   end, { desc = 'Create a new BB-7 chat' })
 
   -- Parse path:start:end syntax, returns path, start_line, end_line (or nil for full file)
@@ -159,9 +187,11 @@ function M.setup(opts)
   local function add_context_file(opts, read_only)
     local client = require('bb7.client')
 
-    -- Require initialized backend
+    -- Auto-initialize backend if needed
     if not client.is_initialized() then
-      log.info('Not initialized - open BB7 first')
+      ensure_initialized(function()
+        add_context_file(opts, read_only)
+      end)
       return
     end
 
@@ -499,9 +529,9 @@ function M.setup(opts)
   vim.api.nvim_create_user_command('BB7Remove', function(opts)
     local client = require('bb7.client')
 
-    -- Require initialized backend
+    -- Auto-initialize backend if needed
     if not client.is_initialized() then
-      log.info('Not initialized - open BB7 first')
+      log.info('Not initialized - no file to remove')
       return
     end
 

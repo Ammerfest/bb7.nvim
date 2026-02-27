@@ -19,7 +19,7 @@ func TestEstimateTokens_PotentialSavings(t *testing.T) {
 	}
 
 	// Create a new chat
-	chat, err := s.ChatNew("")
+	chat, err := s.ChatNew("", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestEstimateTokens_MultipleFiles(t *testing.T) {
 		t.Fatalf("Init failed: %v", err)
 	}
 
-	chat, err := s.ChatNew("")
+	chat, err := s.ChatNew("", "")
 	if err != nil {
 		t.Fatalf("NewChat failed: %v", err)
 	}

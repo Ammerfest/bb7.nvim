@@ -32,6 +32,7 @@ local function switch_mode(new_mode)
 
   -- Reset filetype when leaving file/diff mode
   if new_mode == 'chat' then
+    vim.treesitter.stop(state.buf)
     vim.bo[state.buf].filetype = ''
   end
 
@@ -128,6 +129,12 @@ function M.set_chat(chat)
   end
   state.mode = 'chat'
   state.current_file = nil
+
+  -- Clear file syntax highlighting when returning to chat mode
+  if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
+    vim.treesitter.stop(state.buf)
+    vim.bo[state.buf].filetype = ''
+  end
 
   -- Check for instruction parse errors and show/clear accordingly
   local instr_error = nil
@@ -425,6 +432,10 @@ end
 -- Keeps current_file so gf/gd still work after switching away from Files pane
 function M.show_chat()
   state.mode = 'chat'
+  if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
+    vim.treesitter.stop(state.buf)
+    vim.bo[state.buf].filetype = ''
+  end
   render.render()
   notify_title_changed()
 end

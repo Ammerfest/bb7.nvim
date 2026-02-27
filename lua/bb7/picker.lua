@@ -540,8 +540,7 @@ function M.open(opts)
   -- Initial render
   render_list()
 
-  -- Start in insert mode
-  vim.cmd('startinsert')
+  -- Start in normal mode; user can press i to filter
 end
 
 return M

@@ -10,7 +10,7 @@ import (
 func TestChatIndexRecoveryFromCorruptFile(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("first")
+	chat, err := s.ChatNew("first", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestChatIndexRecoveryFromCorruptFile(t *testing.T) {
 func TestChatIndexRebuildWhenMissing(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("first")
+	chat, err := s.ChatNew("first", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -80,7 +80,7 @@ func readActiveChatID(t *testing.T, projectRoot string) string {
 func TestActiveChatIDPersistedAfterChatNew(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("test")
+	chat, err := s.ChatNew("test", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -94,11 +94,11 @@ func TestActiveChatIDPersistedAfterChatNew(t *testing.T) {
 func TestActiveChatIDPersistedAfterChatSelect(t *testing.T) {
 	s := setupTestState(t)
 
-	chat1, err := s.ChatNew("first")
+	chat1, err := s.ChatNew("first", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
-	chat2, err := s.ChatNew("second")
+	chat2, err := s.ChatNew("second", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestActiveChatIDPersistedAfterChatSelect(t *testing.T) {
 func TestActiveChatIDClearedAfterDeleteActiveChat(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("doomed")
+	chat, err := s.ChatNew("doomed", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestActiveChatIDClearedAfterDeleteActiveChat(t *testing.T) {
 func TestInitRestoresActiveChat(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("persistent")
+	chat, err := s.ChatNew("persistent", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestInitRestoresActiveChat(t *testing.T) {
 func TestInitIgnoresDeletedActiveChat(t *testing.T) {
 	s := setupTestState(t)
 
-	chat, err := s.ChatNew("will-delete")
+	chat, err := s.ChatNew("will-delete", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}

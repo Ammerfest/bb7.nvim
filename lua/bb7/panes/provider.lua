@@ -196,8 +196,10 @@ local function render()
     local pct = math.floor((state.context_estimate / state.context_limit) * 100)
     left4 = ' Context: ' .. est_str .. ' / ' .. limit_str .. ' (' .. pct .. '%)'
     -- Determine warning state
+    -- Only compute effective_limit when max_completion is a strict subset of context
+    -- (some models report max_completion == context_length, meaning shared window)
     local effective_limit = state.context_limit
-    if state.max_completion and state.max_completion > 0 then
+    if state.max_completion and state.max_completion > 0 and state.max_completion < state.context_limit then
       effective_limit = state.context_limit - state.max_completion
     end
     if state.context_estimate > state.context_limit then
@@ -228,7 +230,7 @@ local function render()
   -- Context line warning highlight (line index 3)
   if state.context_estimate and state.context_limit then
     local effective_limit = state.context_limit
-    if state.max_completion and state.max_completion > 0 then
+    if state.max_completion and state.max_completion > 0 and state.max_completion < state.context_limit then
       effective_limit = state.context_limit - state.max_completion
     end
     if state.context_estimate > state.context_limit or state.context_estimate > effective_limit then

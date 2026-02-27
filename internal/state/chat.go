@@ -30,7 +30,8 @@ func (s *State) releasePreviousLock() {
 }
 
 // ChatNew creates a new chat and sets it as active.
-func (s *State) ChatNew(name string) (*Chat, error) {
+// If model is empty, the caller is responsible for resolving the default.
+func (s *State) ChatNew(name, model string) (*Chat, error) {
 	if err := s.requireInit(); err != nil {
 		return nil, err
 	}
@@ -47,12 +48,16 @@ func (s *State) ChatNew(name string) (*Chat, error) {
 		name = "Chat " + created.Format("2006-01-02 15:04")
 	}
 
+	if model == "" {
+		model = "anthropic/claude-sonnet-4"
+	}
+
 	chat := &Chat{
 		Version:      CurrentChatVersion,
 		ID:           id,
 		Name:         name,
 		Created:      created,
-		Model:        "anthropic/claude-sonnet-4",
+		Model:        model,
 		ContextFiles: []ContextFile{},
 		Messages:     []Message{},
 	}
@@ -897,7 +902,8 @@ func loadChatFrom(chatJSONPath string) (*Chat, error) {
 }
 
 // ChatNewGlobal creates a new global chat and sets it as active.
-func (s *State) ChatNewGlobal(name string) (*Chat, error) {
+// If model is empty, the caller is responsible for resolving the default.
+func (s *State) ChatNewGlobal(name, model string) (*Chat, error) {
 	if err := s.ensureGlobalChatsDir(); err != nil {
 		return nil, err
 	}
@@ -912,12 +918,16 @@ func (s *State) ChatNewGlobal(name string) (*Chat, error) {
 		name = "Chat " + created.Format("2006-01-02 15:04")
 	}
 
+	if model == "" {
+		model = "anthropic/claude-sonnet-4"
+	}
+
 	chat := &Chat{
 		Version:      CurrentChatVersion,
 		ID:           id,
 		Name:         name,
 		Created:      created,
-		Model:        "anthropic/claude-sonnet-4",
+		Model:        model,
 		Global:       true,
 		ContextFiles: []ContextFile{},
 		Messages:     []Message{},

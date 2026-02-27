@@ -25,6 +25,8 @@ type Config struct {
 	DiffMode              *string `json:"diff_mode"`                // Diff tool mode: "search_replace_multi", "search_replace", "anchored", or "off"
 	ExplicitCacheKey      *bool   `json:"explicit_cache_key"`       // Send prompt_cache_key with chat requests (default: false)
 	AutoRetryPartialEdits *bool   `json:"auto_retry_partial_edits"` // Hidden repair retry after partial diff apply failures (default: false)
+
+	DefaultModelExplicit bool `json:"-"` // true if user explicitly set default_model in config
 }
 
 // Load reads the config from ~/.config/bb7/config.json.
@@ -61,6 +63,7 @@ func LoadFrom(path string) (*Config, error) {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://openrouter.ai/api/v1"
 	}
+	cfg.DefaultModelExplicit = cfg.DefaultModel != ""
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = "anthropic/claude-sonnet-4"
 	}

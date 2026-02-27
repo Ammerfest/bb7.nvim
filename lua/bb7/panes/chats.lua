@@ -325,6 +325,10 @@ function M.new_chat()
   end
 
   local req = { action = 'chat_new', name = name }
+  local current_model = require('bb7.models').get_current()
+  if current_model then
+    req.model = current_model
+  end
   if viewing_global then req.global = true end
   client.request(req, function(response, err)
     if err then
@@ -642,6 +646,10 @@ function M.ensure_chat_exists(callback)
   local name = 'Untitled chat - ' .. os.date('%Y-%m-%d %H:%M')
 
   local req = { action = 'chat_new', name = name }
+  local current_model = require('bb7.models').get_current()
+  if current_model then
+    req.model = current_model
+  end
   if viewing_global then req.global = true end
   client.request(req, function(response, err)
     if err then

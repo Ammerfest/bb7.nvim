@@ -45,7 +45,7 @@ func setupSendIntegrationEnv(t *testing.T, baseURL string) {
 	if err := appState.Init(projectRoot); err != nil {
 		t.Fatalf("Init failed: %v", err)
 	}
-	if _, err := appState.ChatNew("integration-test-chat"); err != nil {
+	if _, err := appState.ChatNew("integration-test-chat", ""); err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
 

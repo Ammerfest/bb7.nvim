@@ -7,7 +7,7 @@ import (
 
 func TestGetFileStatuses_Empty(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	statuses, err := s.GetFileStatuses()
 	if err != nil {
@@ -21,7 +21,7 @@ func TestGetFileStatuses_Empty(t *testing.T) {
 
 func TestGetFileStatuses_ContextOnly(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.ContextAdd("main.go", "package main")
 
 	statuses, err := s.GetFileStatuses()
@@ -50,7 +50,7 @@ func TestGetFileStatuses_ContextOnly(t *testing.T) {
 
 func TestGetFileStatuses_Modified(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.ContextAdd("main.go", "package main")
 	s.WriteOutputFile("main.go", "package main\n\nfunc main() {}")
 
@@ -77,7 +77,7 @@ func TestGetFileStatuses_Modified(t *testing.T) {
 
 func TestGetFileStatuses_Added(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.WriteOutputFile("new_file.go", "package newfile")
 
 	statuses, err := s.GetFileStatuses()
@@ -106,7 +106,7 @@ func TestGetFileStatuses_Added(t *testing.T) {
 
 func TestGetFileStatuses_Applied(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	content := "package main\n\nfunc main() {}"
 	s.ContextAdd("main.go", content)
@@ -132,7 +132,7 @@ func TestGetFileStatuses_Applied(t *testing.T) {
 
 func TestGetFileStatuses_AppliedWithLineEndingDiff(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Same content but different line endings should be considered applied
 	s.ContextAdd("main.go", "line1\nline2")
@@ -151,7 +151,7 @@ func TestGetFileStatuses_AppliedWithLineEndingDiff(t *testing.T) {
 
 func TestGetFileStatuses_Mixed(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Unchanged context file
 	s.ContextAdd("unchanged.go", "package unchanged")
@@ -198,7 +198,7 @@ func TestGetFileStatuses_Mixed(t *testing.T) {
 
 func TestApplyFile(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.ContextAdd("main.go", "old content")
 	s.WriteOutputFile("main.go", "new content")
 
@@ -241,7 +241,7 @@ func TestApplyFile(t *testing.T) {
 
 func TestApplyFile_Added(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.WriteOutputFile("new.go", "new file content")
 
 	// Verify initial status is Added
@@ -277,7 +277,7 @@ func TestApplyFile_Added(t *testing.T) {
 
 func TestApplyFile_NotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	_, err := s.ApplyFile("nonexistent.go")
 	if err != ErrFileNotFound {
@@ -287,7 +287,7 @@ func TestApplyFile_NotFound(t *testing.T) {
 
 func TestConflictAdded_LocalFileExists(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Create a local file in the project root (simulating existing file)
 	localPath := s.ProjectRoot + "/existing.go"
@@ -315,7 +315,7 @@ func TestConflictAdded_LocalFileExists(t *testing.T) {
 
 func TestAdded_LocalFileDoesNotExist(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// LLM writes a file that doesn't exist locally
 	s.WriteOutputFile("brand_new.go", "llm content")
@@ -337,7 +337,7 @@ func TestAdded_LocalFileDoesNotExist(t *testing.T) {
 
 func TestDeleteOutputFile(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 	s.WriteOutputFile("reject.go", "content")
 
 	err := s.DeleteOutputFile("reject.go")
@@ -353,7 +353,7 @@ func TestDeleteOutputFile(t *testing.T) {
 
 func TestDeleteOutputFile_NotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	err := s.DeleteOutputFile("nonexistent.go")
 	if err != ErrFileNotFound {
@@ -381,7 +381,7 @@ func TestApplyFile_RequiresActiveChat(t *testing.T) {
 
 func TestGetFileStatuses_Section(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAddSection("main.go", 10, 20, "section content")
 
@@ -420,7 +420,7 @@ func TestGetFileStatuses_Section(t *testing.T) {
 
 func TestDiffLocalDone_NoChange(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	contextContent := "package main\n\nfunc hello() {}\n"
 	outputContent := "package main\n\nfunc hello() { fmt.Println(\"hi\") }\n"
@@ -453,7 +453,7 @@ func TestDiffLocalDone_NoChange(t *testing.T) {
 
 func TestDiffLocalDone_FullApply(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	contextContent := "package main\n\nfunc hello() {}\n"
 	outputContent := "package main\n\nfunc hello() { fmt.Println(\"hi\") }\n"
@@ -502,7 +502,7 @@ func TestDiffLocalDone_FullApply(t *testing.T) {
 
 func TestDiffLocalDone_PartialApply(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	contextContent := "line1\nline2\nline3\n"
 	outputContent := "LINE1\nLINE2\nLINE3\n"
@@ -556,7 +556,7 @@ func TestDiffLocalDone_PartialApply(t *testing.T) {
 
 func TestDiffLocalDone_PartialApply_ReopenShowsRemaining(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	contextContent := "line1\nline2\nline3\n"
 	outputContent := "LINE1\nLINE2\nLINE3\n"
@@ -595,7 +595,7 @@ func TestDiffLocalDone_PartialApply_ReopenShowsRemaining(t *testing.T) {
 
 func TestDiffLocalDone_OutputDeleted(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.ContextAdd("main.go", "original")
 
@@ -614,7 +614,7 @@ func TestDiffLocalDone_OutputDeleted(t *testing.T) {
 
 func TestDiffLocalDone_AddedFile_FullApply(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	outputContent := "package newfile\n\nfunc New() {}\n"
 
@@ -663,7 +663,7 @@ func TestDiffLocalDone_AddedFile_FullApply(t *testing.T) {
 
 func TestDiffLocalDone_AddedFile_PartialApply(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	outputContent := "LINE1\nLINE2\nLINE3\n"
 
@@ -726,7 +726,7 @@ func TestDiffLocalDone_RequiresActiveChat(t *testing.T) {
 
 func TestGetFileStatuses_MixedFullAndSection(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add full file
 	s.ContextAdd("main.go", "full file content")

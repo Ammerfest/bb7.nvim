@@ -508,6 +508,12 @@ function M.open()
         panes_input.set_chat_active(true)
         -- Restore draft for this chat
         panes_input.set_draft(chat.draft)
+        -- Restore model from chat
+        if chat.model and chat.model ~= '' then
+          models.set_current(chat.model)
+        end
+        -- Restore reasoning level from chat
+        panes_input.set_reasoning_level(chat.reasoning_effort or 'none')
         -- Refresh token estimate for new context
         panes_input.refresh_estimate(update_context_estimate)
       else
@@ -739,10 +745,15 @@ function M.open()
 
   -- Initialize backend and load data
   local project_root = vim.fn.getcwd()
-  client.init(project_root, function(_, err)
+  client.init(project_root, function(resp, err)
     if err then
       log.error('Failed to initialize: ' .. err)
       return
+    end
+
+    -- Pass config default_model to models module (if backend has one)
+    if resp and resp.default_model then
+      models.set_config_default(resp.default_model)
     end
 
     -- Query backend version for display in hint line
@@ -762,10 +773,6 @@ function M.open()
         panes_input.set_model(model_id)
         update_pane_borders()
         update_context_estimate()
-        -- Persist model to active chat (skip during active stream to avoid backend error)
-        if client.is_initialized() and not client.has_active_stream() then
-          client.send({ action = 'save_chat_settings', model = model_id })
-        end
       end,
     })
 
@@ -785,7 +792,7 @@ function M.open()
 
       -- Restore model from chat (single source of truth)
       if chat.model and chat.model ~= '' then
-        models.set_current(chat.model, { persist = false })
+        models.set_current(chat.model)
       end
 
       -- Restore reasoning level from chat

@@ -35,6 +35,9 @@ func TestLoadFrom(t *testing.T) {
 		if cfg.DefaultModel != "gpt-4" {
 			t.Errorf("DefaultModel = %q, want %q", cfg.DefaultModel, "gpt-4")
 		}
+		if !cfg.DefaultModelExplicit {
+			t.Errorf("DefaultModelExplicit = false, want true when default_model is set")
+		}
 		if cfg.ExplicitCacheKey == nil || !*cfg.ExplicitCacheKey {
 			t.Errorf("ExplicitCacheKey = %v, want true", cfg.ExplicitCacheKey)
 		}
@@ -61,6 +64,9 @@ func TestLoadFrom(t *testing.T) {
 		}
 		if cfg.DefaultModel != "anthropic/claude-sonnet-4" {
 			t.Errorf("DefaultModel = %q, want default", cfg.DefaultModel)
+		}
+		if cfg.DefaultModelExplicit {
+			t.Errorf("DefaultModelExplicit = true, want false when default_model is not set")
 		}
 		if cfg.DiffMode == nil || *cfg.DiffMode != "search_replace_multi" {
 			t.Errorf("DiffMode should default to \"search_replace_multi\", got %v", cfg.DiffMode)

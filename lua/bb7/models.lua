@@ -10,6 +10,7 @@ local state = {
   models_by_id = {},     -- Lookup by ID for quick access
   favorites = {},        -- Set of favorite model IDs
   current_model = nil,   -- Currently selected model ID
+  config_default_model = nil, -- default_model from backend config (if explicitly set)
   on_model_changed = nil, -- Callback when model changes
   last_success_at = nil, -- Unix timestamp of last successful refresh
   did_initial_refresh = false,
@@ -440,10 +441,17 @@ function M.refresh(callback)
     if #state.models > 0 and not model_exists(state.current_model) then
       local default_model = nil
 
-      -- Prefer last used model if available.
-      local last_model = load_last_model()
-      if model_exists(last_model) then
-        default_model = last_model
+      -- Prefer config default_model (explicitly set by user) if available.
+      if model_exists(state.config_default_model) then
+        default_model = state.config_default_model
+      end
+
+      -- Then prefer last used model if available.
+      if not default_model then
+        local last_model = load_last_model()
+        if model_exists(last_model) then
+          default_model = last_model
+        end
       end
 
       -- Otherwise prefer first favorite, then first model.
@@ -504,11 +512,10 @@ function M.open_picker()
     get_id = function(model)
       return model.id
     end,
-    selected_id = state.current_model,
     is_favorite = is_favorite,
     on_toggle_favorite = toggle_favorite,
     on_select = function(model)
-      M.set_current(model.id, { persist = true })
+      M.set_current(model.id)
     end,
   })
 end
@@ -518,26 +525,30 @@ function M.get_current()
   return state.current_model
 end
 
--- Set current model
-function M.set_current(model_id, opts)
-  opts = opts or {}
-  state.current_model = model_id
-  if opts.persist ~= false then
-    save_last_model(model_id)
+-- Set current model (always persists to disk and backend)
+function M.set_current(model_id)
+  if model_id == state.current_model then
+    return -- No change
   end
-  if opts.notify ~= false and state.on_model_changed then
+  state.current_model = model_id
+  save_last_model(model_id)
+  -- Persist to active chat in backend (skip during active stream to avoid backend error)
+  if state.initialized and client.is_initialized() and not client.has_active_stream() then
+    client.send({ action = 'save_chat_settings', model = model_id })
+  end
+  if state.on_model_changed then
     state.on_model_changed(model_id)
   end
-end
-
--- Persist the current model (used when sending a message)
-function M.persist_current()
-  save_last_model(state.current_model)
 end
 
 -- Set callback for model changes
 function M.set_callbacks(callbacks)
   state.on_model_changed = callbacks.on_model_changed
+end
+
+-- Set the config default model (from backend init response)
+function M.set_config_default(model_id)
+  state.config_default_model = model_id
 end
 
 -- Get model count

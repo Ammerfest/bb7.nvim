@@ -274,7 +274,7 @@ Model selection behavior:
 |-------|----------|---------|-------------|
 | `api_key` | Yes | - | OpenRouter API key |
 | `base_url` | No | `https://openrouter.ai/api/v1` | API base URL |
-| `default_model` | No | `anthropic/claude-sonnet-4` | Default model for chats |
+| `default_model` | No | `anthropic/claude-sonnet-4` | Initial model for new chats (overrides last-used when explicitly set) |
 | `title_model` | No | `anthropic/claude-3-haiku` | Model for title generation |
 | `allow_data_retention` | No | `true` | Allow providers that retain data transiently |
 | `allow_training` | No | `false` | Allow providers that train on user data |

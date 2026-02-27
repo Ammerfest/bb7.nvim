@@ -4,7 +4,7 @@ import "testing"
 
 func TestWriteOutputFile(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	if err := s.WriteOutputFile("result.go", "package result"); err != nil {
 		t.Fatalf("WriteOutputFile failed: %v", err)
@@ -22,7 +22,7 @@ func TestWriteOutputFile(t *testing.T) {
 
 func TestWriteOutputFileOverwrite(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.WriteOutputFile("file.go", "version 1")
 	s.WriteOutputFile("file.go", "version 2")
@@ -44,7 +44,7 @@ func TestWriteOutputFileRequiresActiveChat(t *testing.T) {
 
 func TestGetOutputFileNotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	_, err := s.GetOutputFile("nonexistent.go")
 	if err != ErrFileNotFound {
@@ -54,7 +54,7 @@ func TestGetOutputFileNotFound(t *testing.T) {
 
 func TestListOutputFiles(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	s.WriteOutputFile("a.go", "a")
 	s.WriteOutputFile("b.go", "b")
@@ -71,7 +71,7 @@ func TestListOutputFiles(t *testing.T) {
 
 func TestListOutputFilesEmpty(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	files, err := s.ListOutputFiles()
 	if err != nil {
@@ -94,7 +94,7 @@ func TestListOutputFilesRequiresActiveChat(t *testing.T) {
 
 func TestWriteOutputFileReadOnly(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add external file (automatically read-only)
 	s.ContextAdd("/etc/hosts", "content")
@@ -108,7 +108,7 @@ func TestWriteOutputFileReadOnly(t *testing.T) {
 
 func TestWriteOutputFilePathTraversal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Attempt path traversal
 	err := s.WriteOutputFile("../../../etc/passwd", "malicious")
@@ -119,7 +119,7 @@ func TestWriteOutputFilePathTraversal(t *testing.T) {
 
 func TestWriteOutputFileAbsoluteOutside(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Attempt to write to absolute path outside project
 	err := s.WriteOutputFile("/etc/passwd", "malicious")
@@ -130,7 +130,7 @@ func TestWriteOutputFileAbsoluteOutside(t *testing.T) {
 
 func TestWriteOutputFileNestedPath(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Write to nested path
 	if err := s.WriteOutputFile("src/utils/new.go", "package utils"); err != nil {
@@ -177,7 +177,7 @@ func TestFatalProjectEscapeExits(t *testing.T) {
 
 func TestGetOutputPath(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Write a file first
 	if err := s.WriteOutputFile("result.go", "package result"); err != nil {
@@ -201,7 +201,7 @@ func TestGetOutputPath(t *testing.T) {
 
 func TestGetOutputPathNotFound(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	_, err := s.GetOutputPath("nonexistent.go")
 	if err != ErrFileNotFound {
@@ -220,7 +220,7 @@ func TestGetOutputPathRequiresActiveChat(t *testing.T) {
 
 func TestGetLocalPath(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	path, err := s.GetLocalPath("src/main.go")
 	if err != nil {
@@ -247,7 +247,7 @@ func TestGetLocalPathRequiresActiveChat(t *testing.T) {
 
 func TestWriteOutputFileGlobalChat(t *testing.T) {
 	s := setupGlobalTestState(t)
-	s.ChatNewGlobal("test")
+	s.ChatNewGlobal("test", "")
 
 	err := s.WriteOutputFile("result.go", "package result")
 	if err != ErrGlobalReadOnly {

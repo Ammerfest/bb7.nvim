@@ -119,7 +119,7 @@ func TestCorruptLockFileAutoRemoved(t *testing.T) {
 
 func TestChatSelectAcquiresLock(t *testing.T) {
 	s := setupTestState(t)
-	chat, err := s.ChatNew("test")
+	chat, err := s.ChatNew("test", "")
 	if err != nil {
 		t.Fatalf("ChatNew failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestChatSelectAcquiresLock(t *testing.T) {
 	}
 
 	// Create a second chat
-	chat2, err := s.ChatNew("test2")
+	chat2, err := s.ChatNew("test2", "")
 	if err != nil {
 		t.Fatalf("ChatNew(2) failed: %v", err)
 	}
@@ -156,8 +156,8 @@ func TestChatSelectAcquiresLock(t *testing.T) {
 func TestChatListShowsLockStatus(t *testing.T) {
 	s := setupTestState(t)
 
-	chat1, _ := s.ChatNew("first")
-	s.ChatNew("second")
+	chat1, _ := s.ChatNew("first", "")
+	s.ChatNew("second", "")
 
 	// first chat's lock was released when second was created
 	// second chat is locked (by us, which IsLocked ignores)
@@ -175,7 +175,7 @@ func TestChatListShowsLockStatus(t *testing.T) {
 
 func TestCleanupReleasesLock(t *testing.T) {
 	s := setupTestState(t)
-	chat, _ := s.ChatNew("test")
+	chat, _ := s.ChatNew("test", "")
 	chatDir := s.chatDir(chat.ID)
 
 	// Lock should exist

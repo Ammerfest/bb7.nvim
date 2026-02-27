@@ -11,7 +11,7 @@ import (
 
 func TestSecurityPathTraversalVariants(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Paths that MUST be rejected (actual traversal)
 	mustReject := []string{
@@ -54,7 +54,7 @@ func TestSecurityPathTraversalVariants(t *testing.T) {
 
 func TestSecurityWriteOutputTraversalVariants(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	traversalPaths := []string{
 		"../secret.go",
@@ -74,7 +74,7 @@ func TestSecurityWriteOutputTraversalVariants(t *testing.T) {
 
 func TestSecurityNoFileCreatedOnTraversalAttempt(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Attempt traversal
 	s.WriteOutputFile("../escape.txt", "malicious")
@@ -96,7 +96,7 @@ func TestSecurityNoFileCreatedOnTraversalAttempt(t *testing.T) {
 
 func TestSecurityReadOnlyEnforcementComprehensive(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add external file (automatically read-only)
 	externalPath := "/usr/share/dict/words"
@@ -137,7 +137,7 @@ func TestSecurityReadOnlyEnforcementComprehensive(t *testing.T) {
 
 func TestSecurityAbsolutePathInProjectConvertsToRelative(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Absolute path that's actually inside the project should be converted
 	absPath := filepath.Join(s.ProjectRoot, "src", "internal.go")
@@ -163,7 +163,7 @@ func TestSecurityAbsolutePathInProjectConvertsToRelative(t *testing.T) {
 
 func TestSecurityGetOutputFileTraversal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Write a legitimate file first
 	s.WriteOutputFile("legit.go", "package legit")
@@ -177,7 +177,7 @@ func TestSecurityGetOutputFileTraversal(t *testing.T) {
 
 func TestSecurityDeleteOutputFileTraversal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Try to delete with traversal
 	err := s.DeleteOutputFile("../../../etc/passwd")
@@ -188,7 +188,7 @@ func TestSecurityDeleteOutputFileTraversal(t *testing.T) {
 
 func TestSecurityGetContextFileTraversal(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add a legitimate file
 	s.ContextAdd("legit.go", "package legit")
@@ -202,7 +202,7 @@ func TestSecurityGetContextFileTraversal(t *testing.T) {
 
 func TestSecurityMultipleFilesWithSameBasename(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add two files with same basename but different paths
 	s.ContextAdd("src/util.go", "package src")
@@ -233,7 +233,7 @@ func TestSecurityMultipleFilesWithSameBasename(t *testing.T) {
 
 func TestSecurityOutputFilesWithSameBasename(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Write two files with same basename but different paths
 	s.WriteOutputFile("src/new.go", "package src")
@@ -265,7 +265,7 @@ func TestSecurityOutputFilesWithSameBasename(t *testing.T) {
 
 func TestSecurityNullByteInPath(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Null byte injection attempt
 	err := s.ContextAdd("file\x00.go", "malicious")
@@ -281,7 +281,7 @@ func TestSecurityNullByteInPath(t *testing.T) {
 
 func TestSecurityExternalFileCannotHaveOutput(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	// Add external file
 	s.ContextAdd("/etc/hosts", "127.0.0.1 localhost")
@@ -305,7 +305,7 @@ func TestSecurityExternalFileCannotHaveOutput(t *testing.T) {
 
 func TestSecurityWriteOutputRejectsSymlinkFileEscape(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	originalExit := exitProcess
 	exitProcess = func(code int) {}
@@ -338,7 +338,7 @@ func TestSecurityWriteOutputRejectsSymlinkFileEscape(t *testing.T) {
 
 func TestSecurityWriteOutputRejectsSymlinkDirectoryEscape(t *testing.T) {
 	s := setupTestState(t)
-	s.ChatNew("test")
+	s.ChatNew("test", "")
 
 	originalExit := exitProcess
 	exitProcess = func(code int) {}

@@ -33,7 +33,6 @@ local state = {
   estimate = nil,    -- Current token estimate { total, potential_savings }
   estimate_timer = nil,  -- Debounce timer for input-based re-estimation
   last_estimate_len = 0, -- Character length at last estimate
-  current_model = nil, -- Currently selected model ID
   reasoning_level = 'none', -- Current reasoning effort: 'none', 'low', 'medium', 'high'
   augroup = nil,     -- Autocmd group
   draft_timer = nil, -- Debounce timer for draft saving
@@ -172,10 +171,9 @@ local function send_message()
   if retry then
     request.retry_context = retry
   end
-  if state.current_model then
-    request.model = state.current_model
-    -- Persist the model selection globally when a message is sent.
-    require('bb7.models').persist_current()
+  local current_model = require('bb7.models').get_current()
+  if current_model then
+    request.model = current_model
   end
   -- Include reasoning effort if enabled
   if state.reasoning_level ~= 'none' then
@@ -241,7 +239,7 @@ end
 -- Cycle reasoning effort level
 local function cycle_reasoning()
   local models = require('bb7.models')
-  if not models.supports_reasoning(state.current_model) then
+  if not models.supports_reasoning(models.get_current()) then
     log.info('Model does not support reasoning')
     return
   end
@@ -591,7 +589,7 @@ function M.get_hints()
   else
     -- Normal mode hints (show R only if model supports reasoning)
     local models = require('bb7.models')
-    if models.supports_reasoning(state.current_model) then
+    if models.supports_reasoning(models.get_current()) then
       return 'Send: <CR> | Model: M | Cancel: <C-x> | Reasoning: R'
     else
       return 'Send: <CR> | Model: M | Cancel: <C-x>'
@@ -664,7 +662,6 @@ function M.cleanup()
   state.estimate = nil
   state.estimate_timer = nil
   state.last_estimate_len = 0
-  state.current_model = nil
   state.reasoning_level = 'none'
   state.last_saved_draft = nil
   state.retry_context = nil
@@ -681,14 +678,16 @@ function M.cleanup()
   state.check_send = nil
 end
 
--- Set current model
-function M.set_model(model_id)
-  state.current_model = model_id
+-- Notify that model changed (triggers footer refresh)
+function M.set_model(_model_id)
+  if state.on_footer_changed then
+    state.on_footer_changed()
+  end
 end
 
--- Get current model
+-- Get current model (delegates to models module)
 function M.get_model()
-  return state.current_model
+  return require('bb7.models').get_current()
 end
 
 -- Set retry context (from diff error)
@@ -718,21 +717,22 @@ end
 
 -- Get footer text for display (shows reasoning indicator and current model)
 function M.get_footer()
-  if not state.current_model then
+  local models = require('bb7.models')
+  local current_model = models.get_current()
+  if not current_model then
     return nil
   end
 
   local parts = {}
 
   -- Add reasoning indicator if model supports it
-  local models = require('bb7.models')
-  if models.supports_reasoning(state.current_model) then
+  if models.supports_reasoning(current_model) then
     local indicator = REASONING_DISPLAY[state.reasoning_level] or '▱▱▱'
     table.insert(parts, indicator)
   end
 
   -- Shorten model ID for display (remove provider prefix if present)
-  local display = state.current_model
+  local display = current_model
   -- Truncate if too long
   if #display > 30 then
     display = display:sub(1, 28) .. '..'

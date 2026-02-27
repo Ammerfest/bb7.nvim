@@ -921,17 +921,28 @@ func handleRequest(line string) {
 		if appState.GlobalOnly {
 			resp["global_only"] = true
 		}
+		if err := ensureConfig(); err == nil && appConfig.DefaultModelExplicit {
+			resp["default_model"] = appConfig.DefaultModel
+		}
 		respond(reqID, resp)
 
 	case "chat_new":
 		name, _ := req["name"].(string)
 		global, _ := req["global"].(bool)
+		model, _ := req["model"].(string)
+		// Priority: explicit config default > frontend suggestion > hardcoded fallback
+		if appConfig.DefaultModelExplicit {
+			model = appConfig.DefaultModel
+		}
+		if model == "" {
+			model = appConfig.DefaultModel // hardcoded fallback
+		}
 		var chat *state.Chat
 		var err error
 		if global || appState.GlobalOnly {
-			chat, err = appState.ChatNewGlobal(name)
+			chat, err = appState.ChatNewGlobal(name, model)
 		} else {
-			chat, err = appState.ChatNew(name)
+			chat, err = appState.ChatNew(name, model)
 		}
 		if err != nil {
 			respond(reqID, errorResponse(err))
@@ -1665,6 +1676,10 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	if model == "" {
 		model = appConfig.DefaultModel
+	}
+	// Persist the resolved model on the chat so chat_get reflects it.
+	if model != "" && model != appState.ActiveChat.Model {
+		appState.ActiveChat.Model = model
 	}
 
 	// Build instructions block (fail fast if invalid)

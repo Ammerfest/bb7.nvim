@@ -76,7 +76,7 @@ Configure the default chat model and the model used for auto-generating chat tit
 }
 ```
 
-**`default_model`** (default: `anthropic/claude-sonnet-4`) — The model pre-selected for new messages. You can override it per-message with the model picker (`M` in the Input pane).
+**`default_model`** (default: `anthropic/claude-sonnet-4`) — The initial model for new chats. When explicitly set, this takes priority over the last-used model; when not set, new chats inherit the last-used model. You can always override per-message with the model picker (`M` in the Input pane).
 
 **`title_model`** (default: `anthropic/claude-3-haiku`) — The model used to auto-generate chat titles after the first message. A cheap, fast model is recommended.
 

@@ -251,11 +251,7 @@ function M.open()
 
         -- Restore model from chat
         if chat.model and chat.model ~= '' then
-          models.set_current(chat.model, { persist = false, notify = false })
-        end
-        local current_model = models.get_current()
-        if current_model then
-          panes_input.set_model(current_model)
+          models.set_current(chat.model)
         end
 
         -- Restore reasoning level
