@@ -187,6 +187,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `]u` / `[u` | Next / previous user message |
 | `<C-f>` | Fork chat from current message |
 | `<C-e>` | Edit current user message |
+| `<C-r>` | New chat with current context files |
 | `gc` / `gf` / `gd` | Switch to chat / file / diff mode |
 
 **Input [5]:**

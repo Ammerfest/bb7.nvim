@@ -225,6 +225,17 @@ Users can fork a chat from any user message, creating a new conversation branch:
 
 Forking is available via `<C-f>` in the Preview pane (cursor must be on a user message).
 
+### Reuse Context Files
+
+Users can create a new chat that inherits the current chat's context files via `<C-r>` in the Preview pane:
+
+1. A new empty chat is created (no messages copied)
+2. All context files are copied as they currently are (not from a snapshot)
+3. Model and reasoning effort are carried over
+4. The new chat uses the standard name format ("Chat YYYY-MM-DD HH:MM")
+
+This is useful when starting a new conversation about the same codebase without re-adding files.
+
 ### Edit Message (Fork In Place)
 
 Users can edit a previous user message via `<C-e>` in the Preview pane:

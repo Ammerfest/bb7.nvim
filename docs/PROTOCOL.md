@@ -28,6 +28,7 @@ Each request should include a unique `request_id`. Responses to that request wil
 {"request_id": "10", "action": "search_chats", "query": "physics"}
 {"request_id": "11", "action": "chat_edit", "chat_id": "abc123", "message_index": 4, "content": "Updated message text"}
 {"request_id": "12", "action": "fork_chat", "chat_id": "abc123", "fork_message_index": 4}
+{"request_id": "12b", "action": "chat_new_with_context", "source_chat_id": "abc123"}
 {"request_id": "13", "action": "save_draft", "draft": "Work in progress message"}
 ```
 
@@ -68,6 +69,14 @@ The `model` field is optional; if omitted, uses the default model from config.
 ```
 
 Creates a new chat from messages up to `fork_message_index` (0-based, must be a user message). Restores context state from the message's context snapshot. The fork message content becomes the draft in the new chat.
+
+### New Chat with Context
+
+```json
+{"request_id": "23b", "action": "chat_new_with_context", "source_chat_id": "abc123"}
+```
+
+Creates a new empty chat that inherits the current context files, model, and reasoning effort from the source chat. Unlike fork, no messages are copied and context is taken as-is (not from a snapshot). Returns `{"type": "ok", "id": "new_id"}`.
 
 ### Title Generation
 

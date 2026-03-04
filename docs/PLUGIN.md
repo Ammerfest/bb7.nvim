@@ -67,7 +67,7 @@ lua/bb7/
     │   ├── render.lua     # Render pipeline (line assembly, sections, layout)
     │   ├── format.lua     # Text formatting (bold, italic, underline, wrapping)
     │   ├── highlight.lua  # Highlight logic
-    │   ├── navigation.lua # Anchors, jumps, fork, edit
+    │   ├── navigation.lua # Anchors, jumps, fork, edit, reuse files
     │   ├── files.lua      # File/diff rendering
     │   ├── stream.lua     # Streaming logic
     │   ├── syntax.lua     # Syntax highlighting
