@@ -30,10 +30,13 @@ local function switch_mode(new_mode)
 
   state.mode = new_mode
 
-  -- Reset filetype when leaving file/diff mode
+  -- Reset filetype when leaving file/diff mode (in buffer context so ftplugin
+  -- cleanup affects the preview buffer, not the current window's buffer)
   if new_mode == 'chat' then
-    vim.treesitter.stop(state.buf)
-    vim.bo[state.buf].filetype = ''
+    vim.api.nvim_buf_call(state.buf, function()
+      vim.treesitter.stop(state.buf)
+      vim.bo[state.buf].filetype = ''
+    end)
   end
 
   -- Render appropriate content
@@ -96,6 +99,9 @@ local function setup_keymaps(buf)
   -- Edit current user message in-place
   vim.keymap.set('n', '<C-e>', navigation.edit_chat_message, opts)
 
+  -- Reuse context files in a new chat
+  vim.keymap.set('n', '<C-r>', navigation.reuse_files, opts)
+
   -- Show message info popup
   vim.keymap.set('n', 'K', navigation.show_message_info, opts)
 
@@ -132,8 +138,10 @@ function M.set_chat(chat)
 
   -- Clear file syntax highlighting when returning to chat mode
   if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
-    vim.treesitter.stop(state.buf)
-    vim.bo[state.buf].filetype = ''
+    vim.api.nvim_buf_call(state.buf, function()
+      vim.treesitter.stop(state.buf)
+      vim.bo[state.buf].filetype = ''
+    end)
   end
 
   -- Check for instruction parse errors and show/clear accordingly
@@ -318,7 +326,7 @@ function M.get_hints()
     if state.streaming then
       return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Cancel: <C-x>'
     end
-    return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Info: K | Fork: <C-f> | Edit: <C-e>'
+    return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Info: K | Fork: <C-f> | Edit: <C-e> | Reuse: <C-r>'
   elseif state.mode == 'file' then
     return ''
   elseif state.mode == 'diff' then
@@ -356,7 +364,9 @@ function M.show_context_file(file)
     -- No file selected, return to chat mode
     state.mode = 'chat'
     state.current_file = nil
-    vim.bo[state.buf].filetype = ''
+    vim.api.nvim_buf_call(state.buf, function()
+      vim.bo[state.buf].filetype = ''
+    end)
     render.render()
     notify_title_changed()
     return
@@ -433,8 +443,10 @@ end
 function M.show_chat()
   state.mode = 'chat'
   if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
-    vim.treesitter.stop(state.buf)
-    vim.bo[state.buf].filetype = ''
+    vim.api.nvim_buf_call(state.buf, function()
+      vim.treesitter.stop(state.buf)
+      vim.bo[state.buf].filetype = ''
+    end)
   end
   render.render()
   notify_title_changed()

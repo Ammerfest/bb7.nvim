@@ -620,7 +620,7 @@ function M.open()
 
       -- Update provider pane with usage info
       if usage then
-        panes_provider.update_usage(usage, panes_input.get_model())
+        panes_provider.update_usage(usage)
       end
 
       -- Refresh chat data to get the complete message
@@ -644,7 +644,7 @@ function M.open()
 
       -- Update provider pane with usage info
       if data.usage then
-        panes_provider.update_usage(data.usage, panes_input.get_model())
+        panes_provider.update_usage(data.usage)
       end
 
       -- Refresh chat from backend (assistant text message was saved),
@@ -958,6 +958,8 @@ function M.close()
         persistent.last_stream_chat_id = chat_id
         if usage then
           persistent.last_usage = usage
+          -- Track usage in CSV even when UI is closed
+          panes_provider.update_usage(usage)
         end
         status.set('unread')
       end,
@@ -971,6 +973,8 @@ function M.close()
         persistent.last_stream_chat_id = chat_id
         if data.usage then
           persistent.last_usage = data.usage
+          -- Track usage in CSV even when UI is closed
+          panes_provider.update_usage(data.usage)
         end
         -- Diff error is not a normal response — set idle, not unread
         status.set('idle')

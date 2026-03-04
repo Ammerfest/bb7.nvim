@@ -287,7 +287,12 @@ function M.open()
           on_stream_chunk = function(_)
             -- Status stays 'streaming'
           end,
-          on_stream_done = function(_, _)
+          on_stream_done = function(_, usage)
+            -- Track usage in CSV and info pane
+            if usage then
+              local panes_provider = require('bb7.panes.provider')
+              panes_provider.update_usage(usage)
+            end
             -- Transition to unread
             status.set('unread')
           end,
@@ -299,7 +304,12 @@ function M.open()
             status.set('idle')
             log.error(err_msg)
           end,
-          on_diff_error = function(_)
+          on_diff_error = function(data)
+            -- Track usage in CSV and info pane
+            if data and data.usage then
+              local panes_provider = require('bb7.panes.provider')
+              panes_provider.update_usage(data.usage)
+            end
             status.set('idle')
             log.warn('Diff failed — reopen to retry')
           end,

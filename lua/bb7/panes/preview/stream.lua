@@ -18,7 +18,12 @@ local function start_spinner()
       return
     end
     shared.state.spinner_frame = (shared.state.spinner_frame % #shared.config.spinner_frames) + 1
-    vim.schedule(render.render)
+    vim.schedule(function()
+      -- Only render if preview is in chat mode (don't overwrite file/diff views)
+      if shared.state.mode == 'chat' then
+        render.render()
+      end
+    end)
   end, { ['repeat'] = -1 })
 end
 
@@ -48,6 +53,17 @@ function M.start_streaming(user_message)
   shared.persistent.last_usage = nil  -- Clear last usage when new stream starts
   shared.persistent.last_duration = nil
 
+  -- Switch to chat mode so the user sees the message was sent
+  if shared.state.mode ~= 'chat' then
+    shared.state.mode = 'chat'
+    if shared.state.buf and vim.api.nvim_buf_is_valid(shared.state.buf) then
+      vim.api.nvim_buf_call(shared.state.buf, function()
+        vim.treesitter.stop(shared.state.buf)
+        vim.bo[shared.state.buf].filetype = ''
+      end)
+    end
+  end
+
   start_spinner()
   render.render()
 end
@@ -69,7 +85,10 @@ function M.append_stream(content)
     end
   end
 
-  render.render()
+  -- Only render if preview is in chat mode (don't overwrite file/diff views)
+  if shared.state.mode == 'chat' then
+    render.render()
+  end
 end
 
 -- Append reasoning streaming content
@@ -91,7 +110,10 @@ function M.append_reasoning_stream(content)
     end
   end
 
-  render.render()
+  -- Only render if preview is in chat mode (don't overwrite file/diff views)
+  if shared.state.mode == 'chat' then
+    render.render()
+  end
 end
 
 -- End streaming mode (optionally with usage info)

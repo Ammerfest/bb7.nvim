@@ -818,7 +818,10 @@ function M.render()
   local should_autoscroll = shared.state.autoscroll
   local prior_view = nil
   if shared.state.win and vim.api.nvim_win_is_valid(shared.state.win) then
-    prior_view = vim.fn.winsaveview()
+    -- Save the preview window's view (not the current window, which may be input pane)
+    vim.api.nvim_win_call(shared.state.win, function()
+      prior_view = vim.fn.winsaveview()
+    end)
     local line_count = vim.api.nvim_buf_line_count(shared.state.buf)
     if prior_view.lnum and prior_view.lnum < line_count then
       should_autoscroll = false
@@ -852,7 +855,9 @@ function M.render()
     if should_autoscroll and shared.state.win and vim.api.nvim_win_is_valid(shared.state.win) then
       vim.api.nvim_win_set_cursor(shared.state.win, { #lines, 0 })
     elseif prior_view and shared.state.win and vim.api.nvim_win_is_valid(shared.state.win) then
-      vim.fn.winrestview(prior_view)
+      vim.api.nvim_win_call(shared.state.win, function()
+        vim.fn.winrestview(prior_view)
+      end)
     end
     return
   end
@@ -1152,7 +1157,9 @@ function M.render()
     local line_count = vim.api.nvim_buf_line_count(shared.state.buf)
     vim.api.nvim_win_set_cursor(shared.state.win, { line_count, 0 })
   elseif prior_view and shared.state.win and vim.api.nvim_win_is_valid(shared.state.win) then
-    vim.fn.winrestview(prior_view)
+    vim.api.nvim_win_call(shared.state.win, function()
+      vim.fn.winrestview(prior_view)
+    end)
   end
 end
 

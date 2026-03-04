@@ -221,6 +221,54 @@ function M.fork_chat()
   end)
 end
 
+-- Reuse context files: create a new chat with the current chat's context files
+function M.reuse_files()
+  local panes_input = require('bb7.panes.input')
+
+  if panes_input.is_sending() then
+    log.warn('Cannot reuse files while streaming')
+    return
+  end
+
+  if not shared.state.chat then
+    log.warn('No chat loaded')
+    return
+  end
+
+  local client = require('bb7.client')
+  client.request({
+    action = 'chat_new_with_context',
+    source_chat_id = shared.state.chat.id,
+  }, function(response, err)
+    if err then
+      log.error('Reuse files failed: ' .. err)
+      return
+    end
+
+    log.info('New chat created with context files')
+
+    panes_input.clear_retry_context()
+
+    local ui = require('bb7.ui')
+    ui.switch_chat(response.id, function()
+      ui.focus_input()
+    end)
+  end)
+end
+
+-- Get text content from a message (handles parts vs legacy content)
+local function get_message_text(msg)
+  if msg.parts and #msg.parts > 0 then
+    for _, part in ipairs(msg.parts) do
+      if part.type == 'text' and part.content and part.content ~= '' then
+        return part.content
+      end
+    end
+    return ''
+  end
+  return msg.content or ''
+end
+
 -- Edit a user message in-place (truncate below and move to draft)
 function M.edit_chat_message()
   local panes_input = require('bb7.panes.input')
@@ -278,7 +326,7 @@ function M.edit_chat_message()
     action = 'chat_edit',
     chat_id = shared.state.chat.id,
     message_index = msg_idx - 1,
-    content = msg.content or '',
+    content = get_message_text(msg),
   }, function(response, err)
     if err then
       log.error('Edit failed: ' .. err)
@@ -315,19 +363,6 @@ function M.edit_chat_message()
       ui.focus_input()
     end)
   end)
-end
-
--- Get text content from a message (handles parts vs legacy content)
-local function get_message_text(msg)
-  if msg.parts and #msg.parts > 0 then
-    for _, part in ipairs(msg.parts) do
-      if part.type == 'text' and part.content and part.content ~= '' then
-        return part.content
-      end
-    end
-    return ''
-  end
-  return msg.content or ''
 end
 
 -- Truncate text to max_len chars, adding "..." if truncated

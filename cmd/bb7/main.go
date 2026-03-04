@@ -776,6 +776,7 @@ func actionMutatesChatState(action string) bool {
 		"chat_rename",
 		"chat_force_unlock",
 		"fork_chat",
+		"chat_new_with_context",
 		"save_draft",
 		"save_chat_settings",
 		"context_add",
@@ -811,6 +812,7 @@ func actionUsesChatState(action string) bool {
 		"chat_rename",
 		"chat_force_unlock",
 		"fork_chat",
+		"chat_new_with_context",
 		"save_draft",
 		"save_chat_settings",
 		"context_add",
@@ -850,6 +852,7 @@ func actionBlockedDuringStream(action string) bool {
 		"chat_delete",
 		"chat_edit",
 		"fork_chat",
+		"chat_new_with_context",
 		"context_add",
 		"context_add_section",
 		"context_update",
@@ -1135,6 +1138,27 @@ func handleRequest(line string) {
 			"fork_message_content": result.ForkMessageContent,
 			"context_warnings":     result.ContextWarnings,
 		})
+
+	case "chat_new_with_context":
+		sourceChatID, _ := req["source_chat_id"].(string)
+		if sourceChatID == "" {
+			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: source_chat_id"})
+			return
+		}
+		global, _ := req["global"].(bool)
+
+		var chat *state.Chat
+		var err error
+		if global || appState.GlobalOnly {
+			chat, err = appState.ChatNewWithContextGlobal(sourceChatID)
+		} else {
+			chat, err = appState.ChatNewWithContext(sourceChatID)
+		}
+		if err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok", "id": chat.ID})
 
 	case "save_draft":
 		if appState.ActiveChat == nil {
@@ -2044,6 +2068,9 @@ func handleSend(reqID string, req map[string]any) {
 
 		toolCallEntries := toolCallEntriesFromLogs(toolCallLogs)
 
+		// Log usage to CSV
+		appendUsageCSV(model, lastUsage)
+
 		// Send diff_error response
 		diffErrResp := map[string]any{
 			"type":       "diff_error",
@@ -2141,6 +2168,9 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	stateMu.Unlock()
 
+	// Log usage to CSV
+	appendUsageCSV(model, lastUsage)
+
 	// Send done with usage info
 	doneResp := map[string]any{"type": "done", "output_files": outputFiles}
 	if lastUsage != nil {
@@ -2154,6 +2184,42 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	doneResp["duration"] = streamDuration
 	respond(reqID, doneResp)
+}
+
+// appendUsageCSV appends a usage entry to the global usage CSV log (~/.bb7/usage.csv).
+// This runs in the backend so cost tracking is independent of which UI mode sent the message.
+func appendUsageCSV(model string, usage *llm.Usage) {
+	if usage == nil || usage.Cost == 0 {
+		return
+	}
+	csvPath := filepath.Join(os.Getenv("HOME"), ".bb7", "usage.csv")
+	if err := writeUsageCSVEntry(csvPath, appState.ProjectRoot, model, usage); err != nil {
+		log.Error("Failed to write usage CSV: %v", err)
+	}
+}
+
+// writeUsageCSVEntry appends a single usage entry to the given CSV path.
+func writeUsageCSVEntry(csvPath, projectRoot, model string, usage *llm.Usage) error {
+	if err := os.MkdirAll(filepath.Dir(csvPath), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(csvPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	line := fmt.Sprintf("%s,%s,%s,%d,%d,%d,%.6f\n",
+		time.Now().Format("2006-01-02T15:04:05"),
+		projectRoot,
+		model,
+		usage.PromptTokens,
+		usage.CompletionTokens,
+		usage.CachedTokens,
+		usage.Cost,
+	)
+	_, err = f.WriteString(line)
+	return err
 }
 
 // autoTitleGenerateAsync generates a title asynchronously and sends a title_updated event.

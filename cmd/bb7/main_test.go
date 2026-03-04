@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -316,4 +318,87 @@ func TestFormatRetryContextModeSpecificGuidance(t *testing.T) {
 	if !strings.Contains(sr, "Include `file_id` on every `edit_file` call") {
 		t.Fatalf("expected file_id guidance, got:\n%s", sr)
 	}
+}
+
+func TestWriteUsageCSVEntry(t *testing.T) {
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "usage.csv")
+
+	usage := &llm.Usage{
+		PromptTokens:     1000,
+		CompletionTokens: 200,
+		CachedTokens:     500,
+		Cost:             0.123456,
+	}
+
+	err := writeUsageCSVEntry(csvPath, "/some/project", "anthropic/claude-opus-4.5", usage)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatalf("failed to read CSV: %v", err)
+	}
+	line := string(data)
+
+	// Check CSV fields (timestamp,project,model,prompt,completion,cached,cost)
+	if !strings.Contains(line, "/some/project,anthropic/claude-opus-4.5,1000,200,500,0.123456") {
+		t.Fatalf("unexpected CSV content: %s", line)
+	}
+	// Verify it ends with newline
+	if !strings.HasSuffix(line, "\n") {
+		t.Fatalf("CSV line should end with newline: %q", line)
+	}
+}
+
+func TestWriteUsageCSVEntryAppends(t *testing.T) {
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "usage.csv")
+
+	u1 := &llm.Usage{PromptTokens: 100, CompletionTokens: 10, Cost: 0.01}
+	u2 := &llm.Usage{PromptTokens: 200, CompletionTokens: 20, Cost: 0.02}
+
+	if err := writeUsageCSVEntry(csvPath, "/p", "model-a", u1); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeUsageCSVEntry(csvPath, "/p", "model-b", u2); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d: %q", len(lines), string(data))
+	}
+	if !strings.Contains(lines[0], "model-a") {
+		t.Fatalf("first line should contain model-a: %s", lines[0])
+	}
+	if !strings.Contains(lines[1], "model-b") {
+		t.Fatalf("second line should contain model-b: %s", lines[1])
+	}
+}
+
+func TestWriteUsageCSVEntryCreatesDir(t *testing.T) {
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "nested", "dir", "usage.csv")
+
+	usage := &llm.Usage{PromptTokens: 50, CompletionTokens: 5, Cost: 0.005}
+	if err := writeUsageCSVEntry(csvPath, "", "model", usage); err != nil {
+		t.Fatalf("should create nested dirs: %v", err)
+	}
+	if _, err := os.Stat(csvPath); os.IsNotExist(err) {
+		t.Fatal("CSV file should exist")
+	}
+}
+
+func TestAppendUsageCSVSkipsNilAndZeroCost(t *testing.T) {
+	// appendUsageCSV should be a no-op for nil usage or zero cost.
+	// We can't easily test the file isn't written without mocking,
+	// but we can verify it doesn't panic.
+	appendUsageCSV("model", nil)
+	appendUsageCSV("model", &llm.Usage{Cost: 0})
 }

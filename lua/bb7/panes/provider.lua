@@ -50,30 +50,7 @@ local function save_session_cost()
   end
 end
 
--- Append a usage entry to the global CSV log
-local function append_usage_csv(model, usage)
-  if not usage or not usage.cost then return end
-  local csv_path = vim.fn.expand('~/.bb7/usage.csv')
-  local dir = vim.fn.fnamemodify(csv_path, ':h')
-  vim.fn.mkdir(dir, 'p')
-  local file = io.open(csv_path, 'a')
-  if not file then return end
-  local timestamp = os.date('%Y-%m-%dT%H:%M:%S')
-  local project = state.project_root or ''
-  local model_str = model or ''
-  local line = string.format('%s,%s,%s,%d,%d,%d,%.6f\n',
-    timestamp,
-    project,
-    model_str,
-    usage.prompt_tokens or 0,
-    usage.completion_tokens or 0,
-    usage.cached_tokens or 0,
-    usage.cost)
-  file:write(line)
-  file:close()
-end
-
--- Read today's total cost from the CSV log
+-- Read today's total cost from the CSV log (written by backend)
 local function read_today_cost()
   local csv_path = vim.fn.expand('~/.bb7/usage.csv')
   local file = io.open(csv_path, 'r')
@@ -281,12 +258,12 @@ function M.refresh_customization()
   end)
 end
 
--- Update with usage from a completed message
-function M.update_usage(usage, model)
+-- Update with usage from a completed message.
+-- CSV is written by the backend; frontend just updates in-memory state and re-reads CSV.
+function M.update_usage(usage)
   if usage and usage.cost then
     state.session_cost = state.session_cost + usage.cost
     save_session_cost()
-    append_usage_csv(model, usage)
     state.today_cost = read_today_cost()
     render()
     -- Also refresh balance to get updated account total

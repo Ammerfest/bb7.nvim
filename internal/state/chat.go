@@ -863,6 +863,224 @@ func (s *State) EditUserMessage(msgIndex int, content string) ([]ContextWarning,
 	return warnings, s.SaveActiveChat()
 }
 
+// ChatNewWithContext creates a new chat that inherits context files from the source chat.
+// Unlike ForkChat, this copies the current context files (not a snapshot) and starts fresh
+// with no messages.
+func (s *State) ChatNewWithContext(sourceChatID string) (*Chat, error) {
+	if err := s.requireInit(); err != nil {
+		return nil, err
+	}
+
+	// Load source chat (use ActiveChat if it matches)
+	var sourceChat *Chat
+	if s.ActiveChat != nil && s.ActiveChat.ID == sourceChatID {
+		sourceChat = s.ActiveChat
+	} else {
+		var err error
+		sourceChat, err = s.loadChat(sourceChatID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Create new chat
+	newID, err := generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	created := time.Now().UTC()
+	newChat := &Chat{
+		Version:         CurrentChatVersion,
+		ID:              newID,
+		Name:            "Chat " + created.Format("2006-01-02 15:04"),
+		Created:         created,
+		Model:           sourceChat.Model,
+		ReasoningEffort: sourceChat.ReasoningEffort,
+		ContextFiles:    []ContextFile{},
+		Messages:        []Message{},
+	}
+
+	// Create directories
+	if err := os.MkdirAll(s.contextDir(newID), 0755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(s.outputDir(newID), 0755); err != nil {
+		os.RemoveAll(s.chatDir(newID))
+		return nil, err
+	}
+
+	// Copy context files from source chat
+	for _, cf := range sourceChat.ContextFiles {
+		ref := ContextFileRef{
+			Path:      cf.Path,
+			FileID:    cf.Version,
+			StartLine: cf.StartLine,
+			EndLine:   cf.EndLine,
+		}
+
+		srcPath, err := s.contextFilePath(sourceChatID, ref)
+		if err != nil {
+			continue
+		}
+		content, err := os.ReadFile(srcPath)
+		if err != nil {
+			continue // Skip files that can't be read
+		}
+
+		dstPath, err := s.contextFilePath(newID, ref)
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			continue
+		}
+		if err := os.WriteFile(dstPath, content, 0644); err != nil {
+			continue
+		}
+
+		newChat.ContextFiles = append(newChat.ContextFiles, cf)
+	}
+
+	// Save, index, lock, activate
+	if err := s.saveChat(newChat); err != nil {
+		os.RemoveAll(s.chatDir(newID))
+		return nil, err
+	}
+	if err := s.updateChatIndexEntry(newChat); err != nil {
+		// Index is a cache
+	}
+
+	s.releasePreviousLock()
+	newChatDir := s.chatDir(newID)
+	if err := AcquireLock(newChatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = newChatDir
+	}
+
+	s.ActiveChat = newChat
+	s.saveActiveChatID(newChat.ID)
+	return newChat, nil
+}
+
+// ChatNewWithContextGlobal creates a new global chat that inherits context files from a global source chat.
+func (s *State) ChatNewWithContextGlobal(sourceChatID string) (*Chat, error) {
+	if err := s.ensureGlobalChatsDir(); err != nil {
+		return nil, err
+	}
+
+	// Load source chat
+	var sourceChat *Chat
+	if s.ActiveChat != nil && s.ActiveChat.ID == sourceChatID && s.ActiveChat.Global {
+		sourceChat = s.ActiveChat
+	} else {
+		var err error
+		sourceChat, err = loadChatFrom(s.globalChatJSONPath(sourceChatID))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Create new chat
+	newID, err := generateID()
+	if err != nil {
+		return nil, err
+	}
+
+	created := time.Now().UTC()
+	newChat := &Chat{
+		Version:         CurrentChatVersion,
+		ID:              newID,
+		Name:            "Chat " + created.Format("2006-01-02 15:04"),
+		Created:         created,
+		Model:           sourceChat.Model,
+		ReasoningEffort: sourceChat.ReasoningEffort,
+		Global:          true,
+		ContextFiles:    []ContextFile{},
+		Messages:        []Message{},
+	}
+
+	newChatDir := s.globalChatDir(newID)
+	if err := os.MkdirAll(filepath.Join(newChatDir, "context"), 0755); err != nil {
+		return nil, err
+	}
+
+	// Copy context files from source chat
+	srcContextDir := filepath.Join(s.globalChatsDir(), sourceChatID, "context")
+	for _, cf := range sourceChat.ContextFiles {
+		ref := ContextFileRef{
+			Path:      cf.Path,
+			FileID:    cf.Version,
+			StartLine: cf.StartLine,
+			EndLine:   cf.EndLine,
+		}
+
+		// Determine source path (same logic as ForkChatGlobal)
+		var srcPath string
+		if ref.StartLine > 0 && ref.EndLine > 0 {
+			srcPath = filepath.Join(srcContextDir, sectionsDir, hashSectionKey(ref.Path, ref.StartLine, ref.EndLine))
+		} else if filepath.IsAbs(ref.Path) {
+			srcPath = filepath.Join(srcContextDir, externalDir, hashPath(ref.Path))
+		} else {
+			var joinErr error
+			srcPath, joinErr = SafeJoin(srcContextDir, ref.Path)
+			if joinErr != nil {
+				continue
+			}
+		}
+
+		content, err := os.ReadFile(srcPath)
+		if err != nil {
+			continue
+		}
+
+		// Determine destination path
+		newContextDir := filepath.Join(newChatDir, "context")
+		var dstPath string
+		if ref.StartLine > 0 && ref.EndLine > 0 {
+			dstPath = filepath.Join(newContextDir, sectionsDir, hashSectionKey(ref.Path, ref.StartLine, ref.EndLine))
+		} else if filepath.IsAbs(ref.Path) {
+			dstPath = filepath.Join(newContextDir, externalDir, hashPath(ref.Path))
+		} else {
+			var joinErr error
+			dstPath, joinErr = SafeJoin(newContextDir, ref.Path)
+			if joinErr != nil {
+				continue
+			}
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
+			continue
+		}
+		if err := os.WriteFile(dstPath, content, 0644); err != nil {
+			continue
+		}
+
+		newChat.ContextFiles = append(newChat.ContextFiles, cf)
+	}
+
+	// Save, index, lock, activate
+	if err := saveChatAt(newChatDir, newChat); err != nil {
+		os.RemoveAll(newChatDir)
+		return nil, err
+	}
+	if err := updateChatIndexEntryAt(s.globalChatsDir(), newChat); err != nil {
+		// Index is a cache
+	}
+
+	s.releasePreviousLock()
+	if err := AcquireLock(newChatDir); err != nil {
+		// Lock failure is not fatal
+	} else {
+		s.lockedChatDir = newChatDir
+	}
+
+	s.ActiveChat = newChat
+	saveActiveChatIDAt(s.globalChatsDir(), newChat.ID)
+	return newChat, nil
+}
+
 // --- Global chat operations ---
 
 // saveChatAt writes a chat to a specific chat directory.

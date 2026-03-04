@@ -98,7 +98,10 @@ function M.render_diff()
   vim.bo[shared.state.buf].modifiable = true
   vim.api.nvim_buf_set_lines(shared.state.buf, 0, -1, false, lines)
   vim.bo[shared.state.buf].modifiable = false
-  vim.bo[shared.state.buf].filetype = 'diff'
+  -- Set filetype in buffer context so ftplugin scripts affect the preview buffer, not current
+  vim.api.nvim_buf_call(shared.state.buf, function()
+    vim.bo[shared.state.buf].filetype = 'diff'
+  end)
 
   -- Apply highlights
   vim.api.nvim_buf_clear_namespace(shared.state.buf, shared.ns_id, 0, -1)
@@ -172,19 +175,22 @@ function M.render_file()
     -- Set filetype using Neovim's built-in detection
     local filetype = vim.filetype.match({ filename = file.path })
 
-    if filetype then
-      vim.bo[shared.state.buf].filetype = filetype
-      -- Start treesitter highlighting if available
-      local ok, _ = pcall(vim.treesitter.start, shared.state.buf, filetype)
-      if not ok then
-        -- Treesitter parser not available for this filetype, fall back to syntax
-        pcall(vim.cmd, 'syntax enable')
+    -- Set filetype in buffer context so ftplugin scripts affect the preview buffer, not current
+    vim.api.nvim_buf_call(shared.state.buf, function()
+      if filetype then
+        vim.bo[shared.state.buf].filetype = filetype
+        -- Start treesitter highlighting if available
+        local ok, _ = pcall(vim.treesitter.start, shared.state.buf, filetype)
+        if not ok then
+          -- Treesitter parser not available for this filetype, fall back to vim syntax
+          pcall(vim.cmd, 'syntax enable')
+        end
+      else
+        vim.bo[shared.state.buf].filetype = ''
+        -- Stop any active treesitter highlighting
+        pcall(vim.treesitter.stop, shared.state.buf)
       end
-    else
-      vim.bo[shared.state.buf].filetype = ''
-      -- Stop any active treesitter highlighting
-      pcall(vim.treesitter.stop, shared.state.buf)
-    end
+    end)
 
     -- Apply warning highlights for header lines
     vim.api.nvim_buf_clear_namespace(shared.state.buf, shared.ns_id, 0, -1)
