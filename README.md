@@ -174,6 +174,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `<CR>` or `o` | Toggle directory |
 | `x` | Remove file from context |
 | `u` | Update out-of-sync file |
+| `U` | Update all out-of-sync files |
 | `r` | Toggle read-only |
 | `p` | Apply file to local filesystem |
 | `P` | Apply all modified files |

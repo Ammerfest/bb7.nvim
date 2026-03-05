@@ -910,7 +910,7 @@ func (s *State) ChatNewWithContext(sourceChatID string) (*Chat, error) {
 		return nil, err
 	}
 
-	// Copy context files from source chat
+	// Copy context files from source chat, reading fresh content from disk
 	for _, cf := range sourceChat.ContextFiles {
 		ref := ContextFileRef{
 			Path:      cf.Path,
@@ -919,13 +919,30 @@ func (s *State) ChatNewWithContext(sourceChatID string) (*Chat, error) {
 			EndLine:   cf.EndLine,
 		}
 
-		srcPath, err := s.contextFilePath(sourceChatID, ref)
-		if err != nil {
-			continue
-		}
-		content, err := os.ReadFile(srcPath)
-		if err != nil {
-			continue // Skip files that can't be read
+		// For sections, copy from the source chat's context (sections are immutable)
+		// For full files, read fresh content from the filesystem
+		var content []byte
+		if cf.StartLine > 0 && cf.EndLine > 0 {
+			srcPath, err := s.contextFilePath(sourceChatID, ref)
+			if err != nil {
+				continue
+			}
+			content, err = os.ReadFile(srcPath)
+			if err != nil {
+				continue
+			}
+		} else {
+			var filesystemPath string
+			if cf.External || filepath.IsAbs(cf.Path) {
+				filesystemPath = cf.Path
+			} else {
+				filesystemPath = filepath.Join(s.ProjectRoot, cf.Path)
+			}
+			var err error
+			content, err = os.ReadFile(filesystemPath)
+			if err != nil {
+				continue // Skip files that can't be read from disk
+			}
 		}
 
 		dstPath, err := s.contextFilePath(newID, ref)
@@ -939,7 +956,9 @@ func (s *State) ChatNewWithContext(sourceChatID string) (*Chat, error) {
 			continue
 		}
 
-		newChat.ContextFiles = append(newChat.ContextFiles, cf)
+		newCF := cf
+		newCF.Version = HashFileVersion(cf.Path, string(content))
+		newChat.ContextFiles = append(newChat.ContextFiles, newCF)
 	}
 
 	// Save, index, lock, activate
@@ -1006,7 +1025,7 @@ func (s *State) ChatNewWithContextGlobal(sourceChatID string) (*Chat, error) {
 		return nil, err
 	}
 
-	// Copy context files from source chat
+	// Copy context files from source chat, reading fresh content from disk
 	srcContextDir := filepath.Join(s.globalChatsDir(), sourceChatID, "context")
 	for _, cf := range sourceChat.ContextFiles {
 		ref := ContextFileRef{
@@ -1016,23 +1035,24 @@ func (s *State) ChatNewWithContextGlobal(sourceChatID string) (*Chat, error) {
 			EndLine:   cf.EndLine,
 		}
 
-		// Determine source path (same logic as ForkChatGlobal)
-		var srcPath string
-		if ref.StartLine > 0 && ref.EndLine > 0 {
+		// For sections, copy from source chat's context (sections are immutable)
+		// For full files, read fresh content from the filesystem
+		var content []byte
+		if cf.StartLine > 0 && cf.EndLine > 0 {
+			var srcPath string
 			srcPath = filepath.Join(srcContextDir, sectionsDir, hashSectionKey(ref.Path, ref.StartLine, ref.EndLine))
-		} else if filepath.IsAbs(ref.Path) {
-			srcPath = filepath.Join(srcContextDir, externalDir, hashPath(ref.Path))
-		} else {
-			var joinErr error
-			srcPath, joinErr = SafeJoin(srcContextDir, ref.Path)
-			if joinErr != nil {
+			var err error
+			content, err = os.ReadFile(srcPath)
+			if err != nil {
 				continue
 			}
-		}
-
-		content, err := os.ReadFile(srcPath)
-		if err != nil {
-			continue
+		} else {
+			// Global chats use absolute paths
+			var err error
+			content, err = os.ReadFile(ref.Path)
+			if err != nil {
+				continue
+			}
 		}
 
 		// Determine destination path
@@ -1057,7 +1077,9 @@ func (s *State) ChatNewWithContextGlobal(sourceChatID string) (*Chat, error) {
 			continue
 		}
 
-		newChat.ContextFiles = append(newChat.ContextFiles, cf)
+		newCF := cf
+		newCF.Version = HashFileVersion(cf.Path, string(content))
+		newChat.ContextFiles = append(newChat.ContextFiles, newCF)
 	}
 
 	// Save, index, lock, activate

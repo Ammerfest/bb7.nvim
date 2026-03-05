@@ -28,6 +28,7 @@ M.state = {
   autoscroll = true, -- Keep view pinned to bottom while streaming
   send_error = nil, -- Error message when send fails (shown inline in preview)
   diff_error = nil, -- List of diff error strings (shown after messages on failure)
+  saved_views = {}, -- Saved cursor/scroll positions per mode (chat/file/diff)
 }
 
 -- Persistent state that survives window close/reopen

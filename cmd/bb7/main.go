@@ -1008,6 +1008,13 @@ func handleRequest(line string) {
 			respond(reqID, errorResponse(state.ErrNoActiveChat))
 			return
 		}
+		instrInfo := appState.GetInstructionsInfo()
+		if appState.ActiveChat.Global {
+			// Global chats don't use project instructions
+			instrInfo.ProjectPath = ""
+			instrInfo.ProjectExists = false
+			instrInfo.ProjectError = ""
+		}
 		resp := map[string]any{
 			"type":              "chat",
 			"id":                appState.ActiveChat.ID,
@@ -1017,7 +1024,7 @@ func handleRequest(line string) {
 			"reasoning_effort":  appState.ActiveChat.ReasoningEffort,
 			"draft":             appState.ActiveChat.Draft,
 			"messages":          appState.ActiveChat.Messages,
-			"instructions_info": appState.GetInstructionsInfo(),
+			"instructions_info": instrInfo,
 		}
 		if appState.ActiveChat.Global {
 			resp["global"] = true
@@ -1460,7 +1467,13 @@ func handleRequest(line string) {
 	case "get_customization_info":
 		info := appState.GetInstructionsInfo()
 		globalValid := info.GlobalExists
-		projectValid := info.ProjectExists && info.ProjectError == ""
+		// Global chats don't use project instructions
+		isGlobalChat := appState.ActiveChat != nil && appState.ActiveChat.Global
+		projectValid := !isGlobalChat && info.ProjectExists && info.ProjectError == ""
+		projectError := info.ProjectError
+		if isGlobalChat {
+			projectError = ""
+		}
 		systemOverride := false
 		if homeDir, err := os.UserHomeDir(); err == nil {
 			overridePath := filepath.Join(homeDir, ".config", "bb7", "system_prompt.txt")
@@ -1473,7 +1486,7 @@ func handleRequest(line string) {
 			"system_override":            systemOverride,
 			"global_instructions":        globalValid,
 			"project_instructions":       projectValid,
-			"project_instructions_error": info.ProjectError,
+			"project_instructions_error": projectError,
 		})
 
 	case "prepare_instructions":

@@ -792,6 +792,58 @@ local function update_context()
   end)
 end
 
+-- Update all out-of-sync context files
+local function update_all()
+  local project_root = client.get_project_root() or vim.fn.getcwd()
+  local pending = {}
+
+  -- Collect all out-of-sync files
+  for _, file in ipairs(state.files) do
+    if file.out_of_sync and file.status ~= 'S' then
+      local full_path = file.external and file.path or (project_root .. '/' .. file.path)
+      local bufnr = vim.fn.bufnr(full_path)
+      local content
+      if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+        local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+        content = table.concat(lines, '\n')
+      else
+        local f = io.open(full_path, 'r')
+        if f then
+          content = f:read('*a')
+          f:close()
+        end
+      end
+      if content then
+        table.insert(pending, { path = file.path, content = content })
+      end
+    end
+  end
+
+  if #pending == 0 then
+    log.info('All files are in sync')
+    return
+  end
+
+  local remaining = #pending
+  local errors = 0
+  for _, item in ipairs(pending) do
+    client.request({ action = 'context_update', path = item.path, content = item.content }, function(_, err)
+      if err then
+        errors = errors + 1
+      end
+      remaining = remaining - 1
+      if remaining == 0 then
+        if errors > 0 then
+          log.error('Updated with ' .. errors .. ' error(s)')
+        else
+          log.info('Updated ' .. #pending .. ' file(s)')
+        end
+        M.refresh()
+      end
+    end)
+  end
+end
+
 -- Toggle read-only status for internal context files
 local function toggle_readonly()
   local file = get_current_file()
@@ -1116,6 +1168,7 @@ function M.setup_keymaps(buf)
   -- Actions
   vim.keymap.set('n', 'x', remove_file, opts)
   vim.keymap.set('n', 'u', update_context, opts)
+  vim.keymap.set('n', 'U', update_all, opts)
   vim.keymap.set('n', 'p', put_file, opts)
   vim.keymap.set('n', 'P', put_all, opts)
   vim.keymap.set('n', 'r', toggle_readonly, opts)
@@ -1169,7 +1222,7 @@ function M.get_hints()
   if file and file.has_output then
     x_label = 'Reject'
   end
-  return 'Toggle: <CR> | ' .. x_label .. ': x | Update: u | Read-only: r | Put: p | Put all: P'
+  return 'Toggle: <CR> | ' .. x_label .. ': x | Read-only: r | Update: u, all: U | Put: p, all: P'
 end
 
 -- Get currently selected file

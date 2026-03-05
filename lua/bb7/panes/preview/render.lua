@@ -822,10 +822,17 @@ function M.render()
     vim.api.nvim_win_call(shared.state.win, function()
       prior_view = vim.fn.winsaveview()
     end)
-    local line_count = vim.api.nvim_buf_line_count(shared.state.buf)
-    if prior_view.lnum and prior_view.lnum < line_count then
-      should_autoscroll = false
-      shared.state.autoscroll = false
+    -- When autoscroll was explicitly set (e.g. by start_streaming), don't let a
+    -- stale cursor position override it — the cursor may be from file/diff mode
+    -- or from a previous shorter buffer.
+    if should_autoscroll then
+      -- keep it true
+    else
+      local line_count = vim.api.nvim_buf_line_count(shared.state.buf)
+      if prior_view.lnum and prior_view.lnum >= line_count then
+        should_autoscroll = true
+        shared.state.autoscroll = true
+      end
     end
   end
 

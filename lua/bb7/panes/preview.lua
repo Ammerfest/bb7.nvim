@@ -20,6 +20,25 @@ local function notify_title_changed()
   end
 end
 
+-- Save the current view (cursor + scroll) for the active mode
+local function save_mode_view()
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_call(state.win, function()
+      state.saved_views[state.mode] = vim.fn.winsaveview()
+    end)
+  end
+end
+
+-- Restore a previously saved view for a mode
+local function restore_mode_view(mode)
+  local view = state.saved_views[mode]
+  if view and state.win and vim.api.nvim_win_is_valid(state.win) then
+    vim.api.nvim_win_call(state.win, function()
+      vim.fn.winrestview(view)
+    end)
+  end
+end
+
 -- Switch to a specific mode
 local function switch_mode(new_mode)
   -- Check if mode is valid for current state
@@ -27,6 +46,9 @@ local function switch_mode(new_mode)
     log.warn('No file selected')
     return
   end
+
+  -- Save current view before switching
+  save_mode_view()
 
   state.mode = new_mode
 
@@ -47,6 +69,9 @@ local function switch_mode(new_mode)
   elseif new_mode == 'diff' then
     files.render_diff()
   end
+
+  -- Restore saved view for the target mode
+  restore_mode_view(new_mode)
 
   notify_title_changed()
   if state.on_mode_changed then
@@ -135,6 +160,7 @@ function M.set_chat(chat)
   end
   state.mode = 'chat'
   state.current_file = nil
+  state.saved_views = {}
 
   -- Clear file syntax highlighting when returning to chat mode
   if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
@@ -362,16 +388,21 @@ end
 function M.show_context_file(file)
   if not file then
     -- No file selected, return to chat mode
+    save_mode_view()
     state.mode = 'chat'
     state.current_file = nil
     vim.api.nvim_buf_call(state.buf, function()
       vim.bo[state.buf].filetype = ''
     end)
     render.render()
+    restore_mode_view('chat')
     notify_title_changed()
     return
   end
 
+  if state.mode ~= 'file' and state.mode ~= 'diff' then
+    save_mode_view()
+  end
   state.current_file = file
   -- Auto-switch to file mode when selecting a file
   state.mode = 'file'
@@ -408,6 +439,7 @@ function M.show_file_in_current_mode(file)
   state.current_file = file
 
   if state.mode == 'chat' then
+    save_mode_view()
     state.mode = 'file'
   end
 
@@ -441,6 +473,7 @@ end
 -- Return to chat mode (from file preview)
 -- Keeps current_file so gf/gd still work after switching away from Files pane
 function M.show_chat()
+  save_mode_view()
   state.mode = 'chat'
   if state.buf and vim.api.nvim_buf_is_valid(state.buf) then
     vim.api.nvim_buf_call(state.buf, function()
@@ -449,6 +482,7 @@ function M.show_chat()
     end)
   end
   render.render()
+  restore_mode_view('chat')
   notify_title_changed()
 end
 
@@ -547,6 +581,7 @@ function M.cleanup()
   state.anchor_lines = {}
   state.user_anchor_lines = {}
   state.user_anchor_msg_idx = {}
+  state.saved_views = {}
   state.on_title_changed = nil
 end
 
