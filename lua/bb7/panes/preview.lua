@@ -402,11 +402,15 @@ function M.show_context_file(file)
 
   if state.mode ~= 'file' and state.mode ~= 'diff' then
     save_mode_view()
+    -- Auto-switch from chat to file mode; diff mode stays as diff
+    state.mode = 'file'
   end
   state.current_file = file
-  -- Auto-switch to file mode when selecting a file
-  state.mode = 'file'
-  files.render_file()
+  if state.mode == 'file' then
+    files.render_file()
+  elseif state.mode == 'diff' then
+    files.render_diff()
+  end
   notify_title_changed()
 end
 
@@ -468,6 +472,34 @@ end
 -- Switch to diff mode (exported for commands)
 function M.switch_to_diff()
   switch_mode('diff')
+end
+
+-- Restore a previously saved preview state (mode, file, per-mode views)
+-- Called during session restore to bring back the exact preview state
+function M.restore_preview_state(mode, file, saved_views)
+  if not mode then return end
+  if saved_views then
+    state.saved_views = saved_views
+  end
+  if mode == 'chat' then
+    -- Already in chat mode from set_chat(), just restore the view
+    restore_mode_view('chat')
+    return
+  end
+  -- file/diff mode requires a current_file
+  if not file then return end
+  state.current_file = file
+  state.mode = mode
+  if mode == 'file' then
+    files.render_file()
+  elseif mode == 'diff' then
+    files.render_diff()
+  end
+  restore_mode_view(mode)
+  notify_title_changed()
+  if state.on_mode_changed then
+    state.on_mode_changed(mode)
+  end
 end
 
 -- Return to chat mode (from file preview)

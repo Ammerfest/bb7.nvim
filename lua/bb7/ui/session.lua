@@ -10,6 +10,17 @@ function M.save_session_state()
   shared.session_state.first_open = false
   shared.session_state.preview_autoscroll = preview_shared.state.autoscroll
 
+  -- Save preview pane mode, current file, and per-mode views
+  shared.session_state.preview_mode = preview_shared.state.mode
+  shared.session_state.preview_file = preview_shared.state.current_file
+  -- Save the current view into saved_views before capturing them
+  if preview_shared.state.win and vim.api.nvim_win_is_valid(preview_shared.state.win) then
+    vim.api.nvim_win_call(preview_shared.state.win, function()
+      preview_shared.state.saved_views[preview_shared.state.mode] = vim.fn.winsaveview()
+    end)
+  end
+  shared.session_state.preview_saved_views = vim.deepcopy(preview_shared.state.saved_views)
+
   for pane_id, pane in pairs(shared.state.panes) do
     if pane.win and vim.api.nvim_win_is_valid(pane.win) then
       local cursor = vim.api.nvim_win_get_cursor(pane.win)

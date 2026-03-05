@@ -1145,12 +1145,14 @@ function M.refresh(callback_or_opts, _legacy_unused)
 end
 
 -- Set the active chat (called when chat selection changes)
-function M.set_chat(chat)
+-- opts.select_path: optional file path to select after refresh (for session restore)
+function M.set_chat(chat, opts)
   state.active_chat = chat
   state.applied_files = {}  -- Clear applied files when switching chats
   state.collapsed = {}      -- Reset tree collapse state
   state.selected_idx = 0    -- Reset selection so refresh will select first file
-  M.refresh()
+  local select_paths = opts and opts.select_path and { opts.select_path } or nil
+  M.refresh({ select_paths = select_paths })
 end
 
 -- Setup keymaps

@@ -34,6 +34,11 @@ M.session_state = {
   active_pane = nil,   -- Last active pane (nil = use default)
   -- Per-pane view state: { cursor = {row, col}, topline = n }
   pane_views = {},     -- { [pane_id] = { cursor = ..., topline = ... }, ... }
+  -- Preview pane state
+  preview_mode = nil,         -- 'chat', 'file', or 'diff'
+  preview_file = nil,         -- current_file table (path, content, status, etc.)
+  preview_saved_views = nil,  -- Per-mode saved views { chat = ..., file = ..., diff = ... }
+  preview_autoscroll = nil,   -- Autoscroll state of preview pane
 }
 
 -- Pane definitions

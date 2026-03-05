@@ -174,9 +174,6 @@ local function focus_pane(pane_id, via_key)
       if file then
         panes_preview.show_context_file(file)
       end
-    elseif prev_pane == 2 and (pane_id == 1 or pane_id == 5) then
-      -- Leaving context pane to chats/input: show chat in preview
-      panes_preview.show_chat()
     end
 
     -- Special case: g5 to Input pane with empty buffer -> auto insert mode
@@ -786,7 +783,12 @@ function M.open()
     -- Load chat list and restore active chat if backend has one
     local function apply_chat_to_panes(chat)
       panes_preview.set_chat(chat)
-      panes_context.set_chat(chat)
+      -- During session restore, select the previously viewed file in context pane
+      local context_opts = nil
+      if session_state.restore_preview_scroll and session_state.preview_file then
+        context_opts = { select_path = session_state.preview_file.path }
+      end
+      panes_context.set_chat(chat, context_opts)
       panes_provider.set_chat(chat)
       panes_input.set_chat_active(true)
       panes_input.set_draft(chat.draft)
@@ -802,12 +804,30 @@ function M.open()
       -- Update footer to reflect restored reasoning
       update_pane_borders()
 
-      -- Restore preview scroll position (deferred from restore_ui_state)
+      -- Restore preview pane state (deferred from restore_ui_state)
       if session_state.restore_preview_scroll then
         session_state.restore_preview_scroll = false
-        if session_state.preview_autoscroll == false and session_state.pane_views[4] then
+        local status = require('bb7.status')
+        if status.raw_status() == 'unread' or panes_preview.is_streaming() then
+          -- Stream completed while closed or still streaming: show chat scrolled to bottom
+          -- set_chat() already put us in chat mode, just ensure autoscroll
+        elseif session_state.preview_mode and session_state.preview_mode ~= 'chat' then
+          -- Restore non-chat preview mode (file/diff with specific file)
           vim.schedule(function()
-            session.restore_pane_view(4)
+            panes_preview.restore_preview_state(
+              session_state.preview_mode,
+              session_state.preview_file,
+              session_state.preview_saved_views
+            )
+          end)
+        elseif session_state.preview_autoscroll == false and session_state.pane_views[4] then
+          -- Chat mode with custom scroll position (not at bottom)
+          vim.schedule(function()
+            panes_preview.restore_preview_state(
+              'chat',
+              nil,
+              session_state.preview_saved_views
+            )
           end)
         end
       end
