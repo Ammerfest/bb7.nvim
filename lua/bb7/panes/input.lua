@@ -352,6 +352,7 @@ function M.setup_keymaps(buf)
   -- gc/gf/gd are set globally by ui.lua (they change focus mode, not just display)
 
   -- Scroll preview pane (works in both normal and insert mode)
+  local preview = require('bb7.panes.preview')
   vim.keymap.set({ 'n', 'i' }, '<C-d>', function() preview.scroll_down() end, opts)
   vim.keymap.set({ 'n', 'i' }, '<C-u>', function() preview.scroll_up() end, opts)
 end

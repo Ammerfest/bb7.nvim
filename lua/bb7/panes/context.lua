@@ -1232,6 +1232,35 @@ function M.get_selected_file()
   return get_current_file()
 end
 
+-- Select the first modified file (M, ~M, A status) if the current file is not modified.
+-- Returns the selected file, or nil if no modified files exist.
+function M.select_first_modified()
+  local current = get_current_file()
+  if current and (current.status == 'M' or current.status == '~M' or current.status == 'A') then
+    return current
+  end
+
+  -- Find first modified file in flat_list
+  for i, item in ipairs(state.flat_list) do
+    if not item.node.is_dir and item.node.file then
+      local s = item.node.file.status
+      if s == 'M' or s == '~M' or s == 'A' then
+        state.selected_idx = i
+        render()
+        if state.win and vim.api.nvim_win_is_valid(state.win) then
+          vim.api.nvim_win_set_cursor(state.win, { i, 0 })
+        end
+        if state.on_file_selected then
+          state.on_file_selected(item.node.file)
+        end
+        return item.node.file
+      end
+    end
+  end
+
+  return nil
+end
+
 -- Get list of files applied since last message (for LLM notification)
 function M.get_applied_files()
   return state.applied_files

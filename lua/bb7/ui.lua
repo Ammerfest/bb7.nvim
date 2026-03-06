@@ -370,6 +370,11 @@ local function setup_common_keymaps(pane_id, buf)
     update_pane_borders()
   end, opts)
   vim.keymap.set('n', 'gd', function()
+    -- If current file has no changes, try to select the first modified file
+    local file = panes_context.select_first_modified()
+    if file then
+      panes_preview.set_current_file(file)
+    end
     session_state.focus_mode = 'diff'
     panes_preview.switch_to_diff()
     update_pane_borders()
