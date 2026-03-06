@@ -104,11 +104,7 @@ local function setup_keymaps(buf)
   vim.keymap.set('n', '<CR>', navigation.toggle_reasoning, opts)
   vim.keymap.set('n', 'o', navigation.toggle_reasoning, opts)
 
-  -- Mode switching with g-prefix (mirrors vim's "go to" commands)
-  -- gf = go to file view, gc = go to chat view, gd = go to diff view
-  vim.keymap.set('n', 'gc', function() switch_mode('chat') end, opts)
-  vim.keymap.set('n', 'gf', function() switch_mode('file') end, opts)
-  vim.keymap.set('n', 'gd', function() switch_mode('diff') end, opts)
+  -- gc/gf/gd are set globally by ui.lua (they change focus mode, not just display)
 
   -- Anchor navigation (vim-style section movements)
   -- [[ / ]] - jump between all anchors (messages + reasoning blocks)
@@ -376,8 +372,7 @@ function M.get_title()
     elseif state.mode == 'diff' then
       status_str = ' [unmodified]'
     end
-    local mode_str = state.mode == 'diff' and ' (diff)' or ''
-    return state.current_file.path .. status_str .. mode_str
+    return state.current_file.path .. status_str
   elseif state.chat then
     return state.chat.name or 'Untitled'
   end

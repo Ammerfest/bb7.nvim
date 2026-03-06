@@ -35,7 +35,8 @@ M.session_state = {
   -- Per-pane view state: { cursor = {row, col}, topline = n }
   pane_views = {},     -- { [pane_id] = { cursor = ..., topline = ... }, ... }
   -- Preview pane state
-  preview_mode = nil,         -- 'chat', 'file', or 'diff'
+  focus_mode = 'auto',        -- 'auto', 'file', or 'diff' (window-level display preference)
+  preview_mode = nil,         -- 'chat', 'file', or 'diff' (last display mode)
   preview_file = nil,         -- current_file table (path, content, status, etc.)
   preview_saved_views = nil,  -- Per-mode saved views { chat = ..., file = ..., diff = ... }
   preview_autoscroll = nil,   -- Autoscroll state of preview pane
@@ -69,7 +70,16 @@ M.PANES = {
       return nil
     end },
   { id = 3, display = 'g3', key = 'g3', name = 'Info', title_fn = function() return 'Info' end },
-  { id = 4, display = 'g4', key = 'g4', name = 'Preview',  title_fn = function() return panes_preview.get_title() end },
+  { id = 4, display = 'g4', key = 'g4', name = 'Preview',  title_fn = function()
+      local title = panes_preview.get_title()
+      local focus = M.session_state.focus_mode
+      if focus == 'file' then
+        return (title or 'Preview') .. ' (File focus)'
+      elseif focus == 'diff' then
+        return (title or 'Preview') .. ' (Diff focus)'
+      end
+      return title
+    end },
   { id = 5, display = 'g5', key = 'g5', name = 'Input',    title_fn = function() return 'Input' end,
     footer_fn = function() return panes_input.get_footer() end },
 }

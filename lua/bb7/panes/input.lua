@@ -349,11 +349,7 @@ function M.setup_keymaps(buf)
   -- Reasoning level toggle (R in normal mode)
   vim.keymap.set('n', 'R', cycle_reasoning, opts)
 
-  -- Preview mode switching (normal mode only)
-  local preview = require('bb7.panes.preview')
-  vim.keymap.set('n', 'gc', function() preview.switch_to_chat() end, opts)
-  vim.keymap.set('n', 'gf', function() preview.switch_to_file() end, opts)
-  vim.keymap.set('n', 'gd', function() preview.switch_to_diff() end, opts)
+  -- gc/gf/gd are set globally by ui.lua (they change focus mode, not just display)
 
   -- Scroll preview pane (works in both normal and insert mode)
   vim.keymap.set({ 'n', 'i' }, '<C-d>', function() preview.scroll_down() end, opts)

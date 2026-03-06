@@ -59,7 +59,8 @@ local function get_view_hints()
   local hints = {}
 
   -- Always show the two "other" mode options
-  if mode ~= 'chat' then
+  -- Hide gc in files pane: it sets auto mode, not immediate chat switch
+  if mode ~= 'chat' and state.active_pane ~= 2 then
     table.insert(hints, 'Chat: gc')
   end
   if mode ~= 'file' and file then
@@ -148,6 +149,57 @@ local function update_pane_borders()
   layout.update_all_scrollbars()
 end
 
+-- Reset focus mode to auto (called on send, stream end, chat switch, new chat)
+local function reset_focus_mode()
+  session_state.focus_mode = 'auto'
+end
+
+-- Update preview display based on focus mode and the pane being focused.
+-- In auto mode: files pane shows file, preview pane keeps display, others show chat.
+-- In file/diff mode: always show that display (fallback to chat if no file).
+local function apply_focus_display(pane_id)
+  local focus = session_state.focus_mode or 'auto'
+
+  if focus == 'file' or focus == 'diff' then
+    local file = panes_context.get_selected_file() or panes_preview.get_current_file()
+    if file then
+      local current_mode = panes_preview.get_mode()
+      if current_mode ~= focus then
+        -- Switch display to match focus mode
+        panes_preview.set_current_file(file)
+        if focus == 'file' then
+          panes_preview.switch_to_file()
+        else
+          panes_preview.switch_to_diff()
+        end
+      elseif pane_id == 2 then
+        -- Already in correct mode, update to show selected file
+        panes_preview.show_file_in_current_mode(file)
+      end
+    else
+      -- No file available, fallback to chat
+      if panes_preview.get_mode() ~= 'chat' then
+        panes_preview.show_chat()
+      end
+    end
+  else -- auto
+    if pane_id == 2 then
+      -- Files pane: show selected file
+      local file = panes_context.get_selected_file()
+      if file then
+        panes_preview.show_context_file(file)
+      end
+    elseif pane_id == 4 then
+      -- Preview pane: keep current display
+    else
+      -- Other panes: show chat
+      if panes_preview.get_mode() ~= 'chat' then
+        panes_preview.show_chat()
+      end
+    end
+  end
+end
+
 -- Focus a specific pane
 -- via_key: optional, the key used to navigate (e.g., 'g4')
 local function focus_pane(pane_id, via_key)
@@ -167,14 +219,8 @@ local function focus_pane(pane_id, via_key)
       panes_context.set_focus(false)
     end
 
-    -- Handle preview mode based on focused pane
-    if pane_id == 2 then
-      -- Files pane: show selected file in preview
-      local file = panes_context.get_selected_file()
-      if file then
-        panes_preview.show_context_file(file)
-      end
-    end
+    -- Update preview display based on focus mode + active pane
+    apply_focus_display(pane_id)
 
     -- Special case: g5 to Input pane with empty buffer -> auto insert mode
     if pane_id == 5 and via_key == 'g5' and panes_input.is_empty() then
@@ -278,10 +324,30 @@ local function setup_common_keymaps(pane_id, buf)
   vim.keymap.set('n', '<C-w><C-w>', function() cycle_pane(1) end, opts)
   vim.keymap.set('n', '<C-w>W', function() cycle_pane(-1) end, opts)
 
-  -- Global view switching (gc/gd/gf) - works from any pane
-  vim.keymap.set('n', 'gc', function() panes_preview.switch_to_chat() end, opts)
-  vim.keymap.set('n', 'gf', function() panes_preview.switch_to_file() end, opts)
-  vim.keymap.set('n', 'gd', function() panes_preview.switch_to_diff() end, opts)
+  -- Global focus mode switching (gc/gf/gd) - works from any pane
+  vim.keymap.set('n', 'gc', function()
+    session_state.focus_mode = 'auto'
+    -- In auto mode, show chat unless in files pane
+    if state.active_pane == 2 then
+      local file = panes_context.get_selected_file()
+      if file then
+        panes_preview.show_context_file(file)
+      end
+    else
+      panes_preview.show_chat()
+    end
+    update_pane_borders()
+  end, opts)
+  vim.keymap.set('n', 'gf', function()
+    session_state.focus_mode = 'file'
+    panes_preview.switch_to_file()
+    update_pane_borders()
+  end, opts)
+  vim.keymap.set('n', 'gd', function()
+    session_state.focus_mode = 'diff'
+    panes_preview.switch_to_diff()
+    update_pane_borders()
+  end, opts)
 
   -- C-n/C-p file cycling (mode-aware)
   local function cycle_file_keymap(delta)
@@ -373,6 +439,15 @@ local function setup_autocmds()
     callback = function()
       if not state.is_open then return end
       layout.update_all_scrollbars()
+    end,
+  })
+
+  -- Refresh context pane when Neovim regains focus (detects external file changes)
+  vim.api.nvim_create_autocmd('FocusGained', {
+    group = state.augroup,
+    callback = function()
+      if not state.is_open then return end
+      panes_context.refresh()
     end,
   })
 
@@ -498,6 +573,7 @@ function M.open()
       panes_input.flush_draft()
     end,
     on_chat_selected = function(chat)
+      reset_focus_mode()
       panes_preview.set_chat(chat)
       panes_context.set_chat(chat)
       panes_provider.set_chat(chat)
@@ -520,6 +596,7 @@ function M.open()
       end
     end,
     on_chat_created = function(_)
+      reset_focus_mode()
       -- Focus input pane for new chat
       vim.schedule(function()
         focus_input_insert()
@@ -562,6 +639,7 @@ function M.open()
   -- Setup callbacks for input pane
   panes_input.set_callbacks({
     on_message_sent = function(content)
+      reset_focus_mode()
       -- Start streaming in preview, showing user message immediately
       panes_preview.start_streaming(content)
       require('bb7.status').set('streaming')
@@ -613,6 +691,7 @@ function M.open()
     end,
     on_estimate_refreshed = update_context_estimate,
     on_stream_done = function(output_files, usage)
+      reset_focus_mode()
       panes_preview.end_streaming(usage)
       require('bb7.status').set('idle')
 
@@ -811,6 +890,7 @@ function M.open()
         if status.raw_status() == 'unread' or panes_preview.is_streaming() then
           -- Stream completed while closed or still streaming: show chat scrolled to bottom
           -- set_chat() already put us in chat mode, just ensure autoscroll
+          reset_focus_mode()
         elseif session_state.preview_mode and session_state.preview_mode ~= 'chat' then
           -- Restore non-chat preview mode (file/diff with specific file)
           vim.schedule(function()
