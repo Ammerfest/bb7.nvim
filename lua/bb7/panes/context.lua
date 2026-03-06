@@ -1224,7 +1224,7 @@ function M.get_hints()
   if file and file.has_output then
     x_label = 'Reject'
   end
-  return 'Toggle: <CR> | ' .. x_label .. ': x | Read-only: r | Update: u, all: U | Put: p, all: P'
+  return 'Toggle: <CR> | ' .. x_label .. ': x | Read-only: r | Update: u | Put: p'
 end
 
 -- Get currently selected file

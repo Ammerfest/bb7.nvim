@@ -36,6 +36,7 @@ M.session_state = {
   pane_views = {},     -- { [pane_id] = { cursor = ..., topline = ... }, ... }
   -- Preview pane state
   focus_mode = 'auto',        -- 'auto', 'file', or 'diff' (window-level display preference)
+  diff_expanded = false,      -- Show full file context in diff mode (toggle with zd)
   preview_mode = nil,         -- 'chat', 'file', or 'diff' (last display mode)
   preview_file = nil,         -- current_file table (path, content, status, etc.)
   preview_saved_views = nil,  -- Per-mode saved views { chat = ..., file = ..., diff = ... }

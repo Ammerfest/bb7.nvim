@@ -69,6 +69,11 @@ local function get_view_hints()
   if mode ~= 'diff' and file and file.status == 'M' then
     table.insert(hints, 'Diff: gd')
   end
+  -- Show diff expand toggle only in diff mode when files pane is active
+  if mode == 'diff' and state.active_pane == 2 then
+    local label = session_state.diff_expanded and 'Collapse: zd' or 'Expand: zd'
+    table.insert(hints, label)
+  end
 
   if #hints > 0 then
     return table.concat(hints, ' | ')
@@ -82,34 +87,55 @@ local function update_hints()
     return
   end
 
+  local win_width = state.hint_win and vim.api.nvim_win_is_valid(state.hint_win)
+    and vim.api.nvim_win_get_width(state.hint_win) or 80
+  local version_str = state.version and ('BB-7 ' .. state.version) or ''
+
   local left_hint
   if state.picker_open then
     left_hint = ' Select: <CR> | Favorite: <C-f> | Navigate: <C-n>/<C-p> | Cancel: <Esc>'
   else
     local hint_text = get_pane_hints(state.active_pane)
     local view_hints = get_view_hints()
-    local global_hints = 'Panes: g1-g5 | Cycle: <Tab> | Close: <C-c>'
+    local global_hints = 'Keybindings: ?'
 
-    -- Build full hint: pane hints | view hints | global hints
-    local parts = {}
+    -- Split all hint sources into individual items
+    local items = {}
     if hint_text and hint_text ~= '' then
-      table.insert(parts, hint_text)
+      for item in hint_text:gmatch('[^|]+') do
+        table.insert(items, vim.trim(item))
+      end
     end
     if view_hints then
-      table.insert(parts, view_hints)
+      for item in view_hints:gmatch('[^|]+') do
+        table.insert(items, vim.trim(item))
+      end
     end
-    table.insert(parts, global_hints)
+    for item in global_hints:gmatch('[^|]+') do
+      table.insert(items, vim.trim(item))
+    end
 
-    left_hint = ' ' .. table.concat(parts, ' | ')
+    -- Truncate to fit available width (lazygit-style)
+    local avail = win_width - #version_str - 2  -- leading space + gap
+    local sep = ' | '
+    local ellipsis = '…'
+    local result = {}
+    local len = 1  -- leading space
+    for i, item in ipairs(items) do
+      local addition = (i > 1 and #sep or 0) + #item
+      if len + addition > avail and i > 1 then
+        table.insert(result, ellipsis)
+        break
+      end
+      table.insert(result, item)
+      len = len + addition
+    end
+
+    left_hint = ' ' .. table.concat(result, sep)
   end
 
-  -- Build version string for right side
-  local version_str = state.version and ('BB-7 ' .. state.version) or ''
-
-  -- Calculate padding to right-align version
-  local win_width = state.hint_win and vim.api.nvim_win_is_valid(state.hint_win)
-    and vim.api.nvim_win_get_width(state.hint_win) or 80
-  local padding = win_width - #left_hint - #version_str - 1
+  -- Calculate padding to right-align version (use display width for multi-byte chars)
+  local padding = win_width - vim.fn.strwidth(left_hint) - #version_str - 1
   if padding < 1 then padding = 1 end
 
   local full_hint = left_hint .. string.rep(' ', padding) .. version_str
@@ -347,6 +373,21 @@ local function setup_common_keymaps(pane_id, buf)
     session_state.focus_mode = 'diff'
     panes_preview.switch_to_diff()
     update_pane_borders()
+  end, opts)
+
+  -- Toggle diff context (chunked ↔ full file)
+  vim.keymap.set('n', 'zd', function()
+    session_state.diff_expanded = not session_state.diff_expanded
+    -- Re-render if currently in diff mode
+    if panes_preview.get_mode() == 'diff' then
+      panes_preview.switch_to_diff()
+    end
+    update_pane_borders()
+  end, opts)
+
+  -- Help popup
+  vim.keymap.set('n', '?', function()
+    require('bb7.ui.help').toggle()
   end, opts)
 
   -- C-n/C-p file cycling (mode-aware)

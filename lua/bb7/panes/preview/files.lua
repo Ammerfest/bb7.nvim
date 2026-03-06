@@ -66,7 +66,10 @@ function M.render_diff()
   local new_content = file.output_content or ''
 
   -- Compute diff using vim.diff (backed by xdiff, same as git)
-  local diff_text = vim.diff(old_content, new_content, { ctxlen = 3 })
+  -- Use full file context when diff_expanded is set
+  local ui_shared = require('bb7.ui.shared')
+  local ctxlen = ui_shared.session_state.diff_expanded and 999999 or 3
+  local diff_text = vim.diff(old_content, new_content, { ctxlen = ctxlen })
 
   if not diff_text or diff_text == '' then
     vim.bo[shared.state.buf].modifiable = true

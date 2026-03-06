@@ -346,9 +346,9 @@ function M.get_hints()
   -- Mode-specific hints
   if state.mode == 'chat' then
     if state.streaming then
-      return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Cancel: <C-x>'
+      return 'Toggle: <CR> | Cancel: <C-x>'
     end
-    return 'Next anchor: ]] | Next input: ]u | Toggle: <CR> | Info: K | Fork: <C-f> | Edit: <C-e> | Reuse: <C-r>'
+    return 'Toggle: <CR> | Info: K | Fork: <C-f> | Edit: <C-e> | Reuse: <C-r>'
   elseif state.mode == 'file' then
     return ''
   elseif state.mode == 'diff' then
