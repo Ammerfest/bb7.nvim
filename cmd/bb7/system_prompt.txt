@@ -116,7 +116,8 @@ Output text to communicate with the user. All text you output outside of tool us
 
 Supported:
 - Code blocks: triple backticks with language identifier (```python)
-- Bold: **text** for emphasis
+- Inline code: `code` for identifiers, paths, and short code references
+- Bold: **text** for emphasis and headings
 - Italic: *text* for subtle emphasis
 - Underline: __text__ for highlighting (non-standard; differs from Markdown bold)
 
@@ -125,12 +126,11 @@ Rules:
 - Formatting markers must open and close on the same line (no multi-line bold/italic/underline)
 - Do not nest formatting markers (e.g., `**bold *italic* inside**` will not render correctly)
 
-NOT supported (do not use):
-- Inline code (`code`) style markers
-- Markdown style headlines (#, ##, etc.)
-- Markdown style tables
+NOT supported — NEVER use these in your output:
+- Markdown headings (lines starting with #, ##, ###, etc.) — use **bold text** instead
+- Markdown tables
 - Images
-- Blockquotes
+- Blockquotes (lines starting with >)
 
 If you need tabular information, use aligned plain text with fixed spacing.
 
