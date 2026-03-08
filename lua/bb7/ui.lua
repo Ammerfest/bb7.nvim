@@ -96,8 +96,12 @@ local function update_hints()
     left_hint = ' Select: <CR> | Favorite: <C-f> | Navigate: <C-n>/<C-p> | Cancel: <Esc>'
   else
     local hint_text = get_pane_hints(state.active_pane)
-    local view_hints = get_view_hints()
-    local global_hints = 'Keybindings: ?'
+
+    -- In insert mode on input pane, only show pane hints (normal-mode
+    -- bindings like gc/gf/? would just type letters)
+    local input_insert = state.active_pane == 5 and vim.fn.mode() == 'i'
+    local view_hints = not input_insert and get_view_hints() or nil
+    local global_hints = not input_insert and 'Keybindings: ?' or nil
 
     -- Split all hint sources into individual items
     local items = {}
@@ -111,8 +115,10 @@ local function update_hints()
         table.insert(items, vim.trim(item))
       end
     end
-    for item in global_hints:gmatch('[^|]+') do
-      table.insert(items, vim.trim(item))
+    if global_hints then
+      for item in global_hints:gmatch('[^|]+') do
+        table.insert(items, vim.trim(item))
+      end
     end
 
     -- Truncate to fit available width (lazygit-style)
@@ -486,6 +492,14 @@ local function setup_autocmds()
       if not state.is_open then return end
       layout.update_all_scrollbars()
     end,
+  })
+
+  -- Update hint line when entering/leaving insert mode on input pane
+  -- (insert mode only shows bindings that work in insert mode)
+  vim.api.nvim_create_autocmd({ 'InsertEnter', 'InsertLeave' }, {
+    group = state.augroup,
+    buffer = state.panes[5].buf,
+    callback = update_hints,
   })
 
   -- Refresh context pane when Neovim regains focus (detects external file changes)

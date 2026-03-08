@@ -441,7 +441,7 @@ function M.open(opts)
   local ui_height = vim.o.lines
   local col
   if use_detail then
-    local total_outer = (list_width + 2) + 1 + (detail_width + 2)
+    local total_outer = (list_width + 2) + (detail_width + 2)
     col = math.floor((ui_width - total_outer) / 2)
   else
     col = math.floor((ui_width - list_width) / 2)
@@ -481,7 +481,7 @@ function M.open(opts)
     state.win_detail = vim.api.nvim_open_win(state.buf_detail, false, {
       relative = 'editor',
       row = row,
-      col = col + list_width + 2 + 1,
+      col = col + list_width + 2,
       width = detail_width,
       height = list_height + input_height + 2,
       style = 'minimal',

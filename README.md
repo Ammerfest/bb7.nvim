@@ -30,7 +30,7 @@ I'm amazed what can be done with Claude Code, Codex etc., but for quite a few ta
 
 ## Acknowledgements
 
-Thanks to [lazygit](https://github.com/jesseduffield/lazygit), [opencode](https://github.com/anomalyco/opencode/), [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim/), and T3.chat for inspiration.
+Thanks to [lazygit](https://github.com/jesseduffield/lazygit), [opencode](https://github.com/anomalyco/opencode/) and [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim/) for inspiration.
 
 Everything above the following line was written by me; everything below it, as well as almost everything else in the repository, is LLM output.
 

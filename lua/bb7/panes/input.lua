@@ -577,11 +577,11 @@ function M.get_hints()
 
   local mode = vim.fn.mode()
   if mode == 'i' then
-    -- Insert mode hints
+    -- Insert mode hints (only show bindings that work in insert mode)
     if send_key == 'enter' then
-      return 'Send: <CR> | Newline: <S-CR> | Cancel: <C-x> | Normal: <Esc>'
+      return 'Send: <CR> | Newline: <S-CR> | Cancel: <C-x>'
     else
-      return 'Send: <S-CR> | Cancel: <C-x> | Normal: <Esc>'
+      return 'Send: <S-CR> | Cancel: <C-x>'
     end
   else
     -- Normal mode hints (show R only if model supports reasoning)
