@@ -8,7 +8,7 @@ local log = require('bb7.log')
 -- Tree symbols
 local TREE_EXPANDED = '▼'
 local TREE_COLLAPSED = '▶'
-local TREE_INDENT = '  '  -- 2 spaces per level
+local TREE_INDENT = '   '  -- 3 spaces per level
 
 -- Pane state
 local state = {
@@ -443,9 +443,10 @@ render = function()
     local is_selected = (i == state.selected_idx)
 
     if node.is_dir then
-      -- Directory line: sel + indent + arrow + name/
+      -- Directory line: sel + indent + ' ' + arrow + ' ' + name/
+      -- Leading space aligns directory names with file names (after 3-char status)
       local arrow = state.collapsed[node.path] and TREE_COLLAPSED or TREE_EXPANDED
-      line = indent .. arrow .. ' ' .. node.name .. '/'
+      line = indent .. ' ' .. arrow .. ' ' .. node.name .. '/'
 
       -- Truncate based on display width, not byte length (arrow symbols are multi-byte)
       local line_display_width = vim.fn.strwidth(line)
@@ -455,7 +456,7 @@ render = function()
       table.insert(lines, line)
 
       -- Highlight arrow as Comment
-      local arrow_start = #indent
+      local arrow_start = #indent + 1
       local arrow_end = arrow_start + #arrow
       table.insert(highlights, {
         line = i - 1,
