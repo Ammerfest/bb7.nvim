@@ -557,10 +557,19 @@ function M.set_style(opts)
   render.render()
 end
 
--- Set spinner frames from init.lua
-function M.set_spinner_frames(frames)
-  if frames then
-    shared.config.spinner_frames = frames
+-- Set spinner config from init.lua
+-- spinner = { waiting = { frames, reverse_loop, interval, color }, streaming = { ... } }
+function M.set_spinner_config(spinner)
+  local function apply(target, source)
+    if source.frames then target.frames = source.frames end
+    if source.reverse_loop ~= nil then target.reverse_loop = source.reverse_loop end
+    if source.interval then target.interval = source.interval end
+  end
+  if spinner.waiting then
+    apply(shared.config.spinner_waiting, spinner.waiting)
+  end
+  if spinner.streaming then
+    apply(shared.config.spinner_streaming, spinner.streaming)
   end
 end
 

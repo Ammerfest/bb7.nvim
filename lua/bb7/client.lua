@@ -349,6 +349,12 @@ function M.get_project_root()
   return state.project_root
 end
 
+-- Update project root and exit global-only mode (after BB7Init)
+function M.set_project_root(project_root)
+  state.project_root = project_root
+  state.global_only = false
+end
+
 -- Check if in global-only mode (no project root)
 function M.is_global_only()
   return state.global_only

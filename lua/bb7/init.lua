@@ -57,10 +57,20 @@ local default_config = {
       hunk = 'DiffText',     -- Hunk header (@@ ... @@)
     },
 
-    -- Spinner animation (shown during streaming)
+    -- Spinner animation (each phase independently configurable)
     spinner = {
-      frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },  -- Braille animation
-      color = 'Comment',  -- Spinner and "Generating..." text color
+      waiting = {   -- Shown while waiting for first token
+        -- frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
+        -- reverse_loop = false,  -- Play forward then backward instead of wrapping
+        -- interval = 80,         -- ms between animation frames
+        color = 'Comment',
+      },
+      streaming = { -- Shown while receiving tokens
+        -- frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
+        -- reverse_loop = false,
+        -- interval = 80,
+        color = 'Comment',
+      },
     },
   },
 
@@ -105,7 +115,7 @@ function M.setup(opts)
   local preview = require('bb7.panes.preview')
   if config.chat_style then
     if config.chat_style.spinner then
-      preview.set_spinner_frames(config.chat_style.spinner.frames)
+      preview.set_spinner_config(config.chat_style.spinner)
     end
     if config.chat_style.bar_char then
       preview.set_bar_char(config.chat_style.bar_char)
@@ -149,7 +159,7 @@ function M.setup(opts)
       end
     end
 
-    -- Send bb7_init action
+    -- Send bb7_init action (creates .bb7/ directory)
     client.request({ action = 'bb7_init', project_root = project_root }, function(_, err)
       if err then
         if err:match('[Aa]lready initialized') then
@@ -159,7 +169,26 @@ function M.setup(opts)
         end
         return
       end
-      log.info('Initialized in ' .. project_root)
+
+      -- Re-initialize backend with project root so it exits global-only mode
+      client.request({ action = 'init', project_root = project_root }, function(response, init_err)
+        if init_err then
+          log.error('Init failed: ' .. tostring(init_err))
+          return
+        end
+        client.set_project_root(project_root)
+        log.info('Initialized in ' .. project_root)
+
+        -- If UI is open, refresh chats pane to show project chats
+        local ok, ui = pcall(require, 'bb7.ui')
+        if ok and ui.is_open() then
+          local chats = require('bb7.panes.chats')
+          chats.set_global_mode(false)
+          chats.refresh()
+          local provider = require('bb7.panes.provider')
+          provider.set_project_root(project_root)
+        end
+      end)
     end)
   end, { desc = 'Initialize BB7 in current directory' })
 
@@ -1073,14 +1102,16 @@ function M.setup_highlights()
   set_diff_hl('BB7DiffHunk', diff_hunk)
   vim.api.nvim_set_hl(0, 'BB7DiffChange', { link = 'DiffChange' })
 
-  -- Spinner highlight (configurable)
-  local spinner_style = (config.chat_style or {}).spinner or {}
-  local spinner_color = spinner_style.color or 'Comment'
-  local spinner_fg = resolve_color(spinner_color, false)
-  if spinner_fg then
-    vim.api.nvim_set_hl(0, 'BB7Spinner', { fg = spinner_fg })
-  else
-    vim.api.nvim_set_hl(0, 'BB7Spinner', { link = spinner_color })
+  -- Spinner highlights (per-phase, configurable)
+  local spinner_cfg = (config.chat_style or {}).spinner or {}
+  for _, phase in ipairs({ { key = 'waiting', hl = 'BB7SpinnerWaiting' }, { key = 'streaming', hl = 'BB7SpinnerStreaming' } }) do
+    local phase_color = (spinner_cfg[phase.key] or {}).color or 'Comment'
+    local fg = resolve_color(phase_color, false)
+    if fg then
+      vim.api.nvim_set_hl(0, phase.hl, { fg = fg })
+    else
+      vim.api.nvim_set_hl(0, phase.hl, { link = phase_color })
+    end
   end
 
   -- ============================================

@@ -123,6 +123,7 @@ func (s *State) Init(projectRoot string) error {
 	}
 
 	s.ProjectRoot = projectRoot
+	s.GlobalOnly = false
 
 	// Best-effort restore of last active chat.
 	idx, err := s.loadChatIndex()

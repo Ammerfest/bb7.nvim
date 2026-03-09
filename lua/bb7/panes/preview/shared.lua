@@ -44,7 +44,16 @@ M.persistent = {
 
 M.config = {
   bar_char = '🮇',
-  spinner_frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
+  spinner_waiting = {
+    frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
+    reverse_loop = false,
+    interval = 80,
+  },
+  spinner_streaming = {
+    frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
+    reverse_loop = false,
+    interval = 80,
+  },
   code_indent = '    ',
   style = {
     bar_padding = 2, -- Padding after bar (spaces in virtual text)

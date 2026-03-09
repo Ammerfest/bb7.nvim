@@ -8,16 +8,53 @@ local render = require('bb7.panes.preview.render')
 -- Forward declaration for stop_spinner
 local stop_spinner
 
--- Start the spinner animation timer
-local function start_spinner()
-  if shared.state.spinner_timer then return end -- Already running
-  shared.state.spinner_frame = 1
-  shared.state.spinner_timer = vim.fn.timer_start(80, function()
+-- Get the active spinner config for the current phase
+local function spinner_config()
+  if shared.state.stream_receiving then
+    return shared.config.spinner_streaming
+  else
+    return shared.config.spinner_waiting
+  end
+end
+
+-- Compute effective cycle length for a spinner config
+local function spinner_cycle_len(cfg)
+  local n = #cfg.frames
+  if cfg.reverse_loop and n > 2 then
+    return 2 * n - 2
+  end
+  return n
+end
+
+-- Resolve spinner frame from a frame index and config
+-- For reverse_loop with frames {A,B,C,D}: A,B,C,D,C,B,A,B,...
+function M.resolve_spinner_frame(cfg, idx)
+  local n = #cfg.frames
+  if cfg.reverse_loop and n > 2 then
+    local cycle = 2 * n - 2
+    local pos = ((idx - 1) % cycle) + 1
+    if pos <= n then
+      return cfg.frames[pos]
+    else
+      return cfg.frames[2 * n - pos]
+    end
+  end
+  return cfg.frames[((idx - 1) % n) + 1]
+end
+
+-- Start (or restart) the spinner animation timer with the given interval
+local function start_spinner_timer(interval)
+  if shared.state.spinner_timer then
+    vim.fn.timer_stop(shared.state.spinner_timer)
+  end
+  shared.state.spinner_timer = vim.fn.timer_start(interval, function()
     if not shared.state.streaming then
       stop_spinner()
       return
     end
-    shared.state.spinner_frame = (shared.state.spinner_frame % #shared.config.spinner_frames) + 1
+    local cfg = spinner_config()
+    local cycle = spinner_cycle_len(cfg)
+    shared.state.spinner_frame = (shared.state.spinner_frame % cycle) + 1
     vim.schedule(function()
       -- Only render if preview is in chat mode (don't overwrite file/diff views)
       if shared.state.mode == 'chat' then
@@ -25,6 +62,13 @@ local function start_spinner()
       end
     end)
   end, { ['repeat'] = -1 })
+end
+
+-- Start the spinner animation timer
+local function start_spinner()
+  if shared.state.spinner_timer then return end -- Already running
+  shared.state.spinner_frame = 1
+  start_spinner_timer(spinner_config().interval)
 end
 
 -- Stop the spinner animation timer
@@ -71,7 +115,15 @@ end
 -- Append streaming content
 function M.append_stream(content)
   if not shared.state.streaming then return end
-  shared.state.stream_receiving = true
+  if not shared.state.stream_receiving then
+    local old_interval = shared.config.spinner_waiting.interval
+    shared.state.stream_receiving = true
+    shared.state.spinner_frame = 1  -- Reset for streaming spinner
+    -- Restart timer if streaming interval differs from waiting
+    if shared.config.spinner_streaming.interval ~= old_interval then
+      start_spinner_timer(shared.config.spinner_streaming.interval)
+    end
+  end
 
   -- Split content by newlines and append
   for char in content:gmatch('.') do
@@ -96,7 +148,14 @@ function M.append_reasoning_stream(content)
   if not shared.state.streaming then return end
   -- Skip whitespace-only chunks to avoid rendering an empty reasoning block
   if not content or not content:match('%S') then return end
-  shared.state.stream_receiving = true
+  if not shared.state.stream_receiving then
+    local old_interval = shared.config.spinner_waiting.interval
+    shared.state.stream_receiving = true
+    shared.state.spinner_frame = 1  -- Reset for streaming spinner
+    if shared.config.spinner_streaming.interval ~= old_interval then
+      start_spinner_timer(shared.config.spinner_streaming.interval)
+    end
+  end
 
   -- Split content by newlines and append
   for char in content:gmatch('.') do

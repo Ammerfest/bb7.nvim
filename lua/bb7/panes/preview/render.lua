@@ -1029,14 +1029,17 @@ function M.render()
 
     -- Animated spinner at the bottom with duration
     format.add_empty_line(lines)
-    local spinner = shared.config.spinner_frames[shared.state.spinner_frame] or shared.config.spinner_frames[1]
+    local stream = require('bb7.panes.preview.stream')
+    local cfg = shared.state.stream_receiving and shared.config.spinner_streaming or shared.config.spinner_waiting
+    local spinner = stream.resolve_spinner_frame(cfg, shared.state.spinner_frame)
     local duration_str = ''
     if shared.persistent.stream_start_time then
       local elapsed = os.time() - shared.persistent.stream_start_time
       duration_str = ' ' .. format.format_duration(elapsed)
     end
     local status_label = shared.state.stream_receiving and 'Streaming...' or 'Waiting...'
-    format.add_styled_line(lines, spinner .. ' ' .. status_label .. duration_str, nil, 'BB7Spinner', false)
+    local spinner_hl = shared.state.stream_receiving and 'BB7SpinnerStreaming' or 'BB7SpinnerWaiting'
+    format.add_styled_line(lines, spinner .. ' ' .. status_label .. duration_str, nil, spinner_hl, false)
   end
 
   -- Persistent usage line: find last assistant message with usage data
