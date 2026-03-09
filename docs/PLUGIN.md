@@ -209,7 +209,10 @@ require('bb7').setup({
     error = { text = 'DiagnosticError' },
     meta = { text = 'Comment' },
     diff = { add = 'DiffAdd', remove = 'DiffDelete', hunk = 'DiffText' },
-    spinner = { frames = {...}, color = 'Comment' },
+    spinner = {
+      waiting = { frames = {...}, reverse_loop = false, interval = 80, color = 'Comment' },
+      streaming = { frames = {...}, reverse_loop = false, interval = 80, color = 'Comment' },
+    },
   },
 })
 ```

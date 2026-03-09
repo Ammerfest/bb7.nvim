@@ -226,8 +226,17 @@ require('bb7').setup({
     },
 
     spinner = {
-      frames = { '·', '✢', '✳', '∗', '✻', '✽', '✻', '∗', '✳', '✢' },
-      color = 'DiagnosticHint',
+      waiting = {   -- Shown while waiting for first token
+        frames = { '·', '✢', '✳', '∗', '✻', '✽' },
+        reverse_loop = true,   -- Play forward then backward (·,✢,✳,∗,✻,✽,✻,∗,✳,✢,·,...)
+        interval = 80,         -- ms between animation frames
+        color = 'DiagnosticHint',
+      },
+      streaming = { -- Shown while receiving tokens
+        frames = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' },
+        interval = 80,
+        color = 'DiagnosticHint',
+      },
     },
   },
 })
