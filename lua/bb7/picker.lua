@@ -465,6 +465,7 @@ function M.open(opts)
     title = opts.title and {{ ' ' .. opts.title .. ' ', 'BB7TitleActive' }} or nil,
     title_pos = 'left',
     focusable = false,
+    zindex = 150,  -- Above scrollbars (100), below help popup (200)
   })
 
   vim.api.nvim_set_option_value('winhighlight',
@@ -489,6 +490,7 @@ function M.open(opts)
       title = {{ ' Details ', 'BB7TitleActive' }},
       title_pos = 'left',
       focusable = false,
+      zindex = 150,
     })
 
     vim.api.nvim_set_option_value('winhighlight',
@@ -511,6 +513,7 @@ function M.open(opts)
     border = 'rounded',
     title = {{ ' Filter ', 'BB7TitleActive' }},
     title_pos = 'left',
+    zindex = 150,
   })
 
   vim.api.nvim_set_option_value('winhighlight',
