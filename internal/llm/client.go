@@ -251,7 +251,7 @@ func (c *Client) processStream(ctx context.Context, reader io.Reader, callback S
 			return ctx.Err()
 		}
 		log.Error("SSE scanner error: %v", err)
-		return err
+		return friendlyStreamError(err)
 	}
 
 	// If stream ended without [DONE], still emit any collected tool calls
@@ -266,6 +266,27 @@ func (c *Client) processStream(ctx context.Context, reader io.Reader, callback S
 	callback(StreamEvent{Type: "done", Usage: lastUsage})
 
 	return nil
+}
+
+// friendlyStreamError rewrites raw HTTP/2 stream errors into user-readable messages.
+// Go's http2 library produces errors like:
+//
+//	"stream error: stream ID 1; INTERNAL_ERROR; received from peer"
+//
+// We extract the error code and present a cleaner message.
+func friendlyStreamError(err error) error {
+	msg := err.Error()
+	// Match "stream error: stream ID <n>; <CODE>; received from peer"
+	if idx := strings.Index(msg, "stream error:"); idx >= 0 {
+		// Extract the HTTP/2 error code (e.g. INTERNAL_ERROR, REFUSED_STREAM)
+		code := "unknown"
+		parts := strings.Split(msg[idx:], ";")
+		if len(parts) >= 2 {
+			code = strings.TrimSpace(parts[1])
+		}
+		return fmt.Errorf("Connection lost (%s)", code)
+	}
+	return err
 }
 
 // ParseWriteFileArgs parses the arguments JSON for a write_file tool call.

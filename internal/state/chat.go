@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -1605,4 +1607,196 @@ func (s *State) ForkChatGlobal(chatID string, forkIndex int) (*ForkChatResult, e
 		ForkMessageContent: MessageText(forkMsg),
 		ContextWarnings:    warnings,
 	}, nil
+}
+
+// ChatMoveToGlobal moves a project chat to global scope.
+// Requires the chat to have no output files (no pending modifications).
+func (s *State) ChatMoveToGlobal(id string) error {
+	if err := s.requireInit(); err != nil {
+		return err
+	}
+
+	srcDir := s.chatDir(id)
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return ErrChatNotFound
+	}
+
+	if IsLocked(srcDir) {
+		return ErrChatLocked
+	}
+
+	// Verify output directory is empty (no pending modifications)
+	outputDir := filepath.Join(srcDir, "output")
+	if entries, err := os.ReadDir(outputDir); err == nil && len(entries) > 0 {
+		return fmt.Errorf("chat has pending file modifications — apply or reject changes before moving")
+	}
+
+	if err := s.ensureGlobalChatsDir(); err != nil {
+		return err
+	}
+
+	dstDir := s.globalChatDir(id)
+	if _, err := os.Stat(dstDir); err == nil {
+		return fmt.Errorf("chat ID already exists in global scope")
+	}
+
+	// Move directory (rename if same filesystem, copy+delete otherwise)
+	if err := moveDir(srcDir, dstDir); err != nil {
+		return fmt.Errorf("failed to move chat: %w", err)
+	}
+
+	// Remove output directory (global chats don't have one)
+	os.RemoveAll(filepath.Join(dstDir, "output"))
+
+	// Set all context files to read-only and touch timestamp so it sorts first
+	chatPath := filepath.Join(dstDir, "chat.json")
+	if chat, err := loadChatFrom(chatPath); err == nil {
+		for i := range chat.ContextFiles {
+			chat.ContextFiles[i].ReadOnly = true
+		}
+		chat.Created = time.Now()
+		saveChatAt(dstDir, chat)
+		// Update indexes (best-effort)
+		s.removeChatIndexEntry(id)
+		updateChatIndexEntryAt(s.globalChatsDir(), chat)
+	} else {
+		s.removeChatIndexEntry(id)
+	}
+
+	// Release previous lock and deactivate old chat
+	s.releasePreviousLock()
+	s.ActiveChat = nil
+	s.saveActiveChatID("")
+
+	// Select the moved chat as active in global scope
+	s.ChatSelectGlobal(id)
+
+	return nil
+}
+
+// ChatMoveToProject moves a global chat to project scope.
+func (s *State) ChatMoveToProject(id string) error {
+	if err := s.requireInit(); err != nil {
+		return err
+	}
+
+	srcDir := s.globalChatDir(id)
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return ErrChatNotFound
+	}
+
+	if IsLocked(srcDir) {
+		return ErrChatLocked
+	}
+
+	dstDir := s.chatDir(id)
+	if _, err := os.Stat(dstDir); err == nil {
+		return fmt.Errorf("chat ID already exists in project scope")
+	}
+
+	// Move directory (rename if same filesystem, copy+delete otherwise)
+	if err := moveDir(srcDir, dstDir); err != nil {
+		return fmt.Errorf("failed to move chat: %w", err)
+	}
+
+	// Create output directory (project chats need one)
+	os.MkdirAll(filepath.Join(dstDir, "output"), 0755)
+
+	// Release previous lock and deactivate old chat
+	s.releasePreviousLock()
+	s.ActiveChat = nil
+	saveActiveChatIDAt(s.globalChatsDir(), "")
+	s.saveActiveChatID("")
+
+	// Touch timestamp so moved chat sorts first, then update indexes
+	chatPath := filepath.Join(dstDir, "chat.json")
+	if chat, err := loadChatFrom(chatPath); err == nil {
+		chat.Created = time.Now()
+		saveChatAt(dstDir, chat)
+		removeChatIndexEntryAt(s.globalChatsDir(), id)
+		s.updateChatIndexEntry(chat)
+	} else {
+		removeChatIndexEntryAt(s.globalChatsDir(), id)
+	}
+
+	// Select the moved chat as active in project scope
+	s.ChatSelect(id)
+
+	return nil
+}
+
+// moveDir moves a directory from src to dst.
+// Tries os.Rename first (atomic, same filesystem). Falls back to copy+delete
+// for cross-device moves.
+func moveDir(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+
+	// Rename failed (likely cross-device). Copy then delete.
+	if err := copyDirRecursive(src, dst); err != nil {
+		// Clean up partial copy
+		os.RemoveAll(dst)
+		return err
+	}
+
+	return os.RemoveAll(src)
+}
+
+// copyDirRecursive copies a directory tree from src to dst.
+func copyDirRecursive(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDirRecursive(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyFile copies a single file from src to dst, preserving permissions.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	srcInfo, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }

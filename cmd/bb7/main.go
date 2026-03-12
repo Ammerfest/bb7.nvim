@@ -1075,6 +1075,29 @@ func handleRequest(line string) {
 		}
 		respond(reqID, map[string]any{"type": "ok"})
 
+	case "chat_move":
+		id, _ := req["id"].(string)
+		if id == "" {
+			respond(reqID, map[string]any{"type": "error", "message": "Missing required field: id"})
+			return
+		}
+		to, _ := req["to"].(string)
+		var err error
+		switch to {
+		case "global":
+			err = appState.ChatMoveToGlobal(id)
+		case "project":
+			err = appState.ChatMoveToProject(id)
+		default:
+			respond(reqID, map[string]any{"type": "error", "message": "Missing or invalid field: to (must be 'global' or 'project')"})
+			return
+		}
+		if err != nil {
+			respond(reqID, errorResponse(err))
+			return
+		}
+		respond(reqID, map[string]any{"type": "ok"})
+
 	case "chat_active":
 		if !appState.Initialized() {
 			respond(reqID, errorResponse(state.ErrNotInitialized))

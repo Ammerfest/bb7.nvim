@@ -173,6 +173,16 @@ function M.get_mock_chat()
           { type = 'context_event', action = 'AssistantWriteFile', path = 'config.example.yaml', added = true },
         },
       },
+      -- Code block with long lines (for wrap/copy testing)
+      {
+        role = 'assistant',
+        parts = {
+          {
+            type = 'text',
+            content = 'Here\'s the deployment command:\n\n```bash\ncurl -X POST https://api.example.com/v1/deployments/create --header "Authorization: Bearer $API_TOKEN" --header "Content-Type: application/json" --data \'{"environment": "production", "version": "2.1.0", "rollback_on_failure": true, "notify_channels": ["slack", "email"]}\' --retry 3 --retry-delay 5 --max-time 120\n```\n\nAnd the Go function:\n\n```go\nfunc ProcessAllItemsInBatchWithRetryAndNotification(ctx context.Context, items []Item, batchSize int, maxRetries int, notifyOnComplete bool) ([]Result, error) {\n    results := make([]Result, 0, len(items))\n    for i := 0; i < len(items); i += batchSize {\n        end := min(i+batchSize, len(items))\n        batch := items[i:end]\n        batchResults, err := processBatchWithRetry(ctx, batch, maxRetries)\n        if err != nil {\n            return results, fmt.Errorf("batch %d-%d failed after %d retries: %w", i, end, maxRetries, err)\n        }\n        results = append(results, batchResults...)\n    }\n    return results, nil\n}\n```\n\nCopy the curl command above — it should be a single line.',
+          },
+        },
+      },
     },
   }
 end
@@ -295,7 +305,7 @@ function M.get_format_test_chat()
           { type = 'context_event', action = 'AssistantWriteFile', path = 'tests/test_config.py', added = true },
         },
       },
-      -- Message 11: More file additions
+      -- Message 12: More file additions
       {
         role = 'user',
         parts = {

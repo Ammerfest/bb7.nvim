@@ -1228,3 +1228,318 @@ func TestForkChatGlobal(t *testing.T) {
 		t.Error("Active chat after fork should be global")
 	}
 }
+
+// --- Chat move tests ---
+
+// setupBothScopesState creates a state with both project and global dirs initialized.
+func setupBothScopesState(t *testing.T) *State {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	tmpDir := t.TempDir()
+	s := New()
+	if err := s.ProjectInit(tmpDir); err != nil {
+		t.Fatalf("ProjectInit failed: %v", err)
+	}
+	if err := s.Init(tmpDir); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+	return s
+}
+
+func TestChatMoveToGlobal(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("move-me", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Deselect so move doesn't trip over active chat
+	s.ActiveChat = nil
+
+	err = s.ChatMoveToGlobal(chatID)
+	if err != nil {
+		t.Fatalf("ChatMoveToGlobal failed: %v", err)
+	}
+
+	// Verify source is gone
+	srcDir := filepath.Join(s.ProjectRoot, ".bb7", "chats", chatID)
+	if _, err := os.Stat(srcDir); !os.IsNotExist(err) {
+		t.Error("Expected source chat directory to be removed")
+	}
+
+	// Verify destination exists
+	home := os.Getenv("HOME")
+	dstDir := filepath.Join(home, ".bb7", "chats", chatID)
+	if _, err := os.Stat(dstDir); err != nil {
+		t.Error("Expected destination chat directory to exist")
+	}
+
+	// Verify no output directory in global
+	outputDir := filepath.Join(dstDir, "output")
+	if _, err := os.Stat(outputDir); !os.IsNotExist(err) {
+		t.Error("Expected no output directory in global chat")
+	}
+
+	// Verify chat appears in global list
+	globalChats, err := s.ChatListGlobal()
+	if err != nil {
+		t.Fatalf("ChatListGlobal failed: %v", err)
+	}
+	found := false
+	for _, c := range globalChats {
+		if c.ID == chatID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected chat to appear in global list")
+	}
+
+	// Verify chat is gone from project list
+	projectChats, err := s.ChatList()
+	if err != nil {
+		t.Fatalf("ChatList failed: %v", err)
+	}
+	for _, c := range projectChats {
+		if c.ID == chatID {
+			t.Error("Expected chat to be removed from project list")
+		}
+	}
+}
+
+func TestChatMoveToProject(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNewGlobal("move-me-back", "")
+	if err != nil {
+		t.Fatalf("ChatNewGlobal failed: %v", err)
+	}
+	chatID := chat.ID
+
+	s.ActiveChat = nil
+
+	err = s.ChatMoveToProject(chatID)
+	if err != nil {
+		t.Fatalf("ChatMoveToProject failed: %v", err)
+	}
+
+	// Verify source is gone
+	home := os.Getenv("HOME")
+	srcDir := filepath.Join(home, ".bb7", "chats", chatID)
+	if _, err := os.Stat(srcDir); !os.IsNotExist(err) {
+		t.Error("Expected source global chat directory to be removed")
+	}
+
+	// Verify destination exists
+	dstDir := filepath.Join(s.ProjectRoot, ".bb7", "chats", chatID)
+	if _, err := os.Stat(dstDir); err != nil {
+		t.Error("Expected destination project chat directory to exist")
+	}
+
+	// Verify output directory was created
+	outputDir := filepath.Join(dstDir, "output")
+	if _, err := os.Stat(outputDir); err != nil {
+		t.Error("Expected output directory in project chat")
+	}
+
+	// Verify chat appears in project list
+	projectChats, err := s.ChatList()
+	if err != nil {
+		t.Fatalf("ChatList failed: %v", err)
+	}
+	found := false
+	for _, c := range projectChats {
+		if c.ID == chatID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected chat to appear in project list")
+	}
+
+	// Verify chat is gone from global list
+	globalChats, err := s.ChatListGlobal()
+	if err != nil {
+		t.Fatalf("ChatListGlobal failed: %v", err)
+	}
+	for _, c := range globalChats {
+		if c.ID == chatID {
+			t.Error("Expected chat to be removed from global list")
+		}
+	}
+}
+
+func TestChatMoveToGlobalBlockedByOutputFiles(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("has-output", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+
+	// Create a fake output file
+	outputDir := filepath.Join(s.ProjectRoot, ".bb7", "chats", chat.ID, "output")
+	if err := os.WriteFile(filepath.Join(outputDir, "file.txt"), []byte("modified"), 0644); err != nil {
+		t.Fatalf("Failed to create output file: %v", err)
+	}
+
+	s.ActiveChat = nil
+
+	err = s.ChatMoveToGlobal(chat.ID)
+	if err == nil {
+		t.Fatal("Expected error when moving chat with output files")
+	}
+
+	// Verify source still exists (not moved)
+	srcDir := filepath.Join(s.ProjectRoot, ".bb7", "chats", chat.ID)
+	if _, err := os.Stat(srcDir); err != nil {
+		t.Error("Expected source chat directory to still exist")
+	}
+}
+
+func TestChatMoveToGlobalNotFound(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	err := s.ChatMoveToGlobal("nonexistent")
+	if err != ErrChatNotFound {
+		t.Errorf("Expected ErrChatNotFound, got %v", err)
+	}
+}
+
+func TestChatMoveToProjectNotFound(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	err := s.ChatMoveToProject("nonexistent")
+	if err != ErrChatNotFound {
+		t.Errorf("Expected ErrChatNotFound, got %v", err)
+	}
+}
+
+func TestChatMoveActivatesInDestination(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("active-move", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Chat is active in project scope
+	if s.ActiveChat == nil || s.ActiveChat.ID != chatID {
+		t.Fatal("Expected chat to be active")
+	}
+
+	err = s.ChatMoveToGlobal(chatID)
+	if err != nil {
+		t.Fatalf("ChatMoveToGlobal failed: %v", err)
+	}
+
+	// Active chat should be the moved chat in global scope
+	if s.ActiveChat == nil {
+		t.Fatal("Expected ActiveChat to be set after move to global")
+	}
+	if s.ActiveChat.ID != chatID {
+		t.Errorf("Expected active chat ID %s, got %s", chatID, s.ActiveChat.ID)
+	}
+
+	// Move back to project
+	err = s.ChatMoveToProject(chatID)
+	if err != nil {
+		t.Fatalf("ChatMoveToProject failed: %v", err)
+	}
+
+	if s.ActiveChat == nil {
+		t.Fatal("Expected ActiveChat to be set after move to project")
+	}
+	if s.ActiveChat.ID != chatID {
+		t.Errorf("Expected active chat ID %s, got %s", chatID, s.ActiveChat.ID)
+	}
+}
+
+func TestChatMovePreservesMessages(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("with-messages", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Add a message
+	if err := s.AddUserMessage("hello from project", ""); err != nil {
+		t.Fatalf("AddUserMessage failed: %v", err)
+	}
+
+	s.ActiveChat = nil
+
+	err = s.ChatMoveToGlobal(chatID)
+	if err != nil {
+		t.Fatalf("ChatMoveToGlobal failed: %v", err)
+	}
+
+	// Select the moved chat and verify messages
+	_, err = s.ChatSelectGlobal(chatID)
+	if err != nil {
+		t.Fatalf("ChatSelectGlobal failed: %v", err)
+	}
+
+	if len(s.ActiveChat.Messages) != 1 {
+		t.Fatalf("Expected 1 message, got %d", len(s.ActiveChat.Messages))
+	}
+	if MessageText(s.ActiveChat.Messages[0]) != "hello from project" {
+		t.Error("Expected message content to be preserved")
+	}
+}
+
+func TestChatMoveToGlobalSetsFilesReadonly(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("with-files", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Add writable and readonly context files
+	if err := s.ContextAdd("foo.go", "package foo"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+	if err := s.ContextAddWithReadOnly("bar.go", "package bar", true); err != nil {
+		t.Fatalf("ContextAddWithReadOnly failed: %v", err)
+	}
+
+	// Verify one is writable
+	found := false
+	for _, f := range s.ActiveChat.ContextFiles {
+		if f.Path == "foo.go" && !f.ReadOnly {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("Expected foo.go to be writable before move")
+	}
+
+	// Save and deactivate before move
+	s.SaveActiveChat()
+	s.ActiveChat = nil
+
+	err = s.ChatMoveToGlobal(chatID)
+	if err != nil {
+		t.Fatalf("ChatMoveToGlobal failed: %v", err)
+	}
+
+	// After move, all context files should be readonly
+	if s.ActiveChat == nil {
+		t.Fatal("Expected ActiveChat to be set after move")
+	}
+	for _, f := range s.ActiveChat.ContextFiles {
+		if !f.ReadOnly {
+			t.Errorf("Expected file %s to be readonly after move to global", f.Path)
+		}
+	}
+}

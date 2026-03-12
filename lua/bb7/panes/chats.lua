@@ -9,6 +9,12 @@ local pinned_chats = {}
 local current_project_root = nil
 local viewing_global = false  -- true when viewing global chats
 
+-- Per-mode state: preserves cursor and scroll position when toggling
+local mode_state = {
+  [true]  = { selected_idx = 1, topline = 1 },  -- global
+  [false] = { selected_idx = 1, topline = 1 },  -- project
+}
+
 -- Get pinned chats path for current project or global
 local function get_pinned_path()
   if viewing_global then
@@ -459,21 +465,107 @@ local function toggle_mode()
   if client.is_global_only() then
     return -- Can't toggle in global-only mode
   end
+  -- Save current mode's cursor and scroll position
+  sync_selection_with_cursor()
+  mode_state[viewing_global].selected_idx = state.selected_idx
+  if state.win and vim.api.nvim_win_is_valid(state.win) then
+    mode_state[viewing_global].topline = vim.fn.getwininfo(state.win)[1].topline
+  end
+
   viewing_global = not viewing_global
-  state.selected_idx = 1
-  state.active_idx = nil
-  state.active_chat = nil
   -- Reload pinned chats for the new mode
   load_pinned()
-  -- Notify that chat was deselected
-  if state.on_chat_selected then
-    state.on_chat_selected(nil)
-  end
-  M.refresh()
+  M.refresh(function()
+    -- Restore cursor and scroll position for destination mode
+    local saved = mode_state[viewing_global]
+    state.selected_idx = math.min(saved.selected_idx, math.max(1, #state.chats))
+    if state.win and vim.api.nvim_win_is_valid(state.win) then
+      vim.api.nvim_win_set_cursor(state.win, { state.selected_idx, 0 })
+      vim.fn.winrestview({ topline = saved.topline })
+    end
+  end)
   -- Notify data changed (for footer/title updates)
   if state.on_data_changed then
     state.on_data_changed()
   end
+end
+
+-- Move chat between project and global scope
+local function move_chat()
+  if #state.chats == 0 then return end
+  if client.is_global_only() then
+    log.error('No project initialized — cannot move chats')
+    return
+  end
+  sync_selection_with_cursor()
+  local chat = state.chats[state.selected_idx]
+  if not chat then return end
+
+  local target = viewing_global and 'project' or 'global'
+  local display_name = truncate_prompt(chat.name or '', 50)
+  local prompt = string.format('Move "%s" to %s chats?', display_name, target)
+  local confirmed = vim.fn.confirm(prompt, '&Yes\n&No', 2)
+  if confirmed ~= 1 then
+    return
+  end
+
+  -- Check pinned status before move (while still in source scope)
+  local was_pinned = is_pinned(chat.id)
+
+  client.request({ action = 'chat_move', id = chat.id, to = target }, function(_, err)
+    if err then
+      log.error('Failed to move chat: ' .. tostring(err))
+      return
+    end
+
+    -- Remove from source pinned list
+    if was_pinned then
+      pinned_chats[chat.id] = nil
+      save_pinned()
+    end
+
+    -- Switch to destination scope
+    viewing_global = (target == 'global')
+    load_pinned()
+
+    -- Add to destination pinned list
+    if was_pinned then
+      pinned_chats[chat.id] = true
+      save_pinned()
+    end
+
+    log.info('Moved "' .. (chat.name or '') .. '" to ' .. target .. ' chats')
+
+    -- Refresh and select the moved chat (backend already activated it)
+    M.refresh(function()
+      -- The backend has selected this chat as active, so select it in the UI
+      local req = { action = 'chat_select', id = chat.id }
+      if viewing_global then req.global = true end
+
+      -- Flush draft before switching
+      if state.on_before_chat_switch then
+        state.on_before_chat_switch()
+      end
+
+      client.request(req, function(chat_response)
+        if chat_response then
+          state.active_chat = { id = chat.id, name = chat.name }
+          -- Find the chat in the refreshed list
+          for i, c in ipairs(state.chats) do
+            if c.id == chat.id then
+              state.selected_idx = i
+              state.active_idx = i
+              break
+            end
+          end
+          render()
+          if state.on_chat_selected then
+            state.on_chat_selected(chat_response)
+          end
+        end
+      end)
+    end)
+  end)
 end
 
 -- Force unlock the selected chat
@@ -596,6 +688,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set('n', 'p', toggle_pin_selected, opts)
   vim.keymap.set('n', '<C-s>', toggle_mode, opts)
   vim.keymap.set('n', 'u', force_unlock, opts)
+  vim.keymap.set('n', 'm', move_chat, opts)
 end
 
 -- Set callbacks

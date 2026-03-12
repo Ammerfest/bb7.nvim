@@ -408,31 +408,23 @@ local function render_code_segment(content, lang, lines, role, first_line_of_par
   first_line = false
 
   for row_idx, code_line in ipairs(code_lines) do
-    -- Wrap long code lines
-    local wrapped = format.wrap_text(code_line, code_width)
-    for wrap_idx, wrapped_line in ipairs(wrapped) do
-      local line_idx = #lines  -- 0-indexed line number in buffer (before adding this line)
+    local line_idx = #lines  -- 0-indexed line number in buffer (before adding this line)
 
-      -- Use code styling with visible bar
-      -- Buffer content is just the code, indent is virtual text
-      format.add_styled_line(lines, wrapped_line, bar_hl, text_hl, true, nil, nil, shared.config.code_indent, true)
+    -- No manual wrapping — rely on Neovim's native wrap so copying preserves original lines
+    format.add_styled_line(lines, code_line, bar_hl, text_hl, true, nil, nil, shared.config.code_indent, true)
 
-      -- Apply syntax highlights for this line (only first wrap segment gets highlights)
-      -- Note: indent is now virtual text, so columns in buffer start at 0
-      if wrap_idx == 1 and has_syntax_hl then
-        local row = row_idx - 1  -- 0-indexed row in code block
-        for _, hl in ipairs(highlights) do
-          if hl[1] == row then
-            -- hl format: { row, col_start, col_end, hl_group }
-            -- No indent adjustment needed - buffer content starts at col 0
-            local col_start = hl[2]
-            local col_end = hl[3]
-            -- Clamp to line length
-            local line_len = #wrapped_line
-            if col_start < line_len then
-              col_end = math.min(col_end, line_len)
-              table.insert(shared.syntax_highlights, { line_idx, col_start, col_end, hl[4] })
-            end
+    -- Apply syntax highlights for this line
+    if has_syntax_hl then
+      local row = row_idx - 1  -- 0-indexed row in code block
+      for _, hl in ipairs(highlights) do
+        if hl[1] == row then
+          -- hl format: { row, col_start, col_end, hl_group }
+          local col_start = hl[2]
+          local col_end = hl[3]
+          local line_len = #code_line
+          if col_start < line_len then
+            col_end = math.min(col_end, line_len)
+            table.insert(shared.syntax_highlights, { line_idx, col_start, col_end, hl[4] })
           end
         end
       end
@@ -881,49 +873,86 @@ function M.render()
   shared.state.last_rendered_type = nil -- Reset content type tracking
   shared.state.last_rendered_role = nil -- Reset role tracking
 
-  -- Header
-  render_header(lines)
+  -- During streaming, cache the static portion (header + messages) and only
+  -- rebuild the streaming tail on each render. This avoids re-rendering the
+  -- entire chat history on every chunk / spinner tick.
+  if shared.state.streaming and shared.stream_cache then
+    -- Restore from cache
+    local cache = shared.stream_cache
+    for _, l in ipairs(cache.lines) do table.insert(lines, l) end
+    for _, em in ipairs(cache.extmarks) do table.insert(shared.extmarks, em) end
+    for _, sh in ipairs(cache.syntax_highlights) do table.insert(shared.syntax_highlights, sh) end
+    for _, ih in ipairs(cache.inline_highlights) do table.insert(shared.inline_highlights, ih) end
+    for k, v in pairs(cache.reasoning_line_map) do shared.state.reasoning_line_map[k] = v end
+    for _, v in ipairs(cache.anchor_lines) do table.insert(shared.state.anchor_lines, v) end
+    for k, v in pairs(cache.anchor_msg_idx) do shared.state.anchor_msg_idx[k] = v end
+    for _, v in ipairs(cache.user_anchor_lines) do table.insert(shared.state.user_anchor_lines, v) end
+    for k, v in pairs(cache.user_anchor_msg_idx) do shared.state.user_anchor_msg_idx[k] = v end
+    shared.state.last_rendered_type = cache.last_rendered_type
+    shared.state.last_rendered_role = cache.last_rendered_role
+  else
+    -- Build static portion from scratch
+    -- Header
+    render_header(lines)
 
-  -- Send error (shown at top so it's always visible)
-  if shared.state.send_error then
-    if shared.state.last_rendered_type then
-      format.add_empty_line(lines)
-    end
-    local error_icon, error_icon_fg = format.get_prefix_icon('BB7Error')
-    local text_width = format.get_text_width(0)
-    local error_text = shared.state.send_error
-    local first_line = true
-    for _, line in ipairs(vim.split(error_text, '\n', { plain = true })) do
-      local wrapped = format.wrap_text(line, text_width)
-      for _, wrapped_line in ipairs(wrapped) do
-        local line_icon = first_line and error_icon or nil
-        local line_icon_fg = first_line and error_icon_fg or nil
-        format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', true, line_icon, line_icon_fg)
-        first_line = false
+    -- Send error (shown at top so it's always visible)
+    if shared.state.send_error then
+      if shared.state.last_rendered_type then
+        format.add_empty_line(lines)
       end
-    end
-    shared.state.last_rendered_type = 'error'
-    shared.state.last_rendered_role = nil
-  end
-
-  -- Messages
-  if shared.state.chat and shared.state.chat.messages then
-    local last_user_model = nil
-    for msg_idx, msg in ipairs(shared.state.chat.messages) do
-      if msg.role == 'user' and msg.model and msg.model ~= '' then
-        if not last_user_model or last_user_model ~= msg.model then
-          -- Add empty line before Model if there's previous content
-          -- (handles role change and content type transitions)
-          if shared.state.last_rendered_type then
-            format.add_empty_line(lines)
-          end
-          render_meta_line('Model: ' .. msg.model, lines)
-          shared.state.last_rendered_type = 'meta'
-          shared.state.last_rendered_role = 'user'  -- Model line is part of user message
+      local error_icon, error_icon_fg = format.get_prefix_icon('BB7Error')
+      local text_width = format.get_text_width(0)
+      local error_text = shared.state.send_error
+      local first_line = true
+      for _, line in ipairs(vim.split(error_text, '\n', { plain = true })) do
+        local wrapped = format.wrap_text(line, text_width)
+        for _, wrapped_line in ipairs(wrapped) do
+          local line_icon = first_line and error_icon or nil
+          local line_icon_fg = first_line and error_icon_fg or nil
+          format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', true, line_icon, line_icon_fg)
+          first_line = false
         end
-        last_user_model = msg.model
       end
-      render_message(msg, lines, msg_idx)
+      shared.state.last_rendered_type = 'error'
+      shared.state.last_rendered_role = nil
+    end
+
+    -- Messages
+    if shared.state.chat and shared.state.chat.messages then
+      local last_user_model = nil
+      for msg_idx, msg in ipairs(shared.state.chat.messages) do
+        if msg.role == 'user' and msg.model and msg.model ~= '' then
+          if not last_user_model or last_user_model ~= msg.model then
+            -- Add empty line before Model if there's previous content
+            -- (handles role change and content type transitions)
+            if shared.state.last_rendered_type then
+              format.add_empty_line(lines)
+            end
+            render_meta_line('Model: ' .. msg.model, lines)
+            shared.state.last_rendered_type = 'meta'
+            shared.state.last_rendered_role = 'user'  -- Model line is part of user message
+          end
+          last_user_model = msg.model
+        end
+        render_message(msg, lines, msg_idx)
+      end
+    end
+
+    -- Cache the static portion for subsequent streaming renders
+    if shared.state.streaming then
+      shared.stream_cache = {
+        lines = vim.list_extend({}, lines),
+        extmarks = vim.list_extend({}, shared.extmarks),
+        syntax_highlights = vim.list_extend({}, shared.syntax_highlights),
+        inline_highlights = vim.list_extend({}, shared.inline_highlights),
+        reasoning_line_map = vim.tbl_extend('force', {}, shared.state.reasoning_line_map),
+        anchor_lines = vim.list_extend({}, shared.state.anchor_lines),
+        anchor_msg_idx = vim.tbl_extend('force', {}, shared.state.anchor_msg_idx),
+        user_anchor_lines = vim.list_extend({}, shared.state.user_anchor_lines),
+        user_anchor_msg_idx = vim.tbl_extend('force', {}, shared.state.user_anchor_msg_idx),
+        last_rendered_type = shared.state.last_rendered_type,
+        last_rendered_role = shared.state.last_rendered_role,
+      }
     end
   end
 

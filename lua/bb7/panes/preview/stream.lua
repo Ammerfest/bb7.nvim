@@ -187,6 +187,7 @@ function M.end_streaming(usage)
   shared.state.stream_lines = {}
   shared.state.stream_reasoning_lines = {}
   shared.state.pending_user_message = nil
+  shared.stream_cache = nil  -- Invalidate render cache
 
   -- Update persistent state
   shared.persistent.is_streaming = false
@@ -207,6 +208,7 @@ function M.show_send_error(error_msg)
   shared.state.stream_receiving = false
   shared.state.stream_lines = {}
   shared.state.stream_reasoning_lines = {}
+  shared.stream_cache = nil  -- Invalidate render cache
   -- Keep pending_user_message so it renders above the error
   shared.state.send_error = error_msg
   shared.state.autoscroll = false  -- Don't autoscroll to bottom, we want the top

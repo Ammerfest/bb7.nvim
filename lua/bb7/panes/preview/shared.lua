@@ -63,6 +63,7 @@ M.config = {
 M.extmarks = {}
 M.syntax_highlights = {}
 M.inline_highlights = {}  -- Bold/italic/underline/code regions (applied with full hl, not _FgOnly)
+M.stream_cache = nil  -- Cached static portion during streaming (header + messages)
 M.bold_hl_cache = {}
 M.hl_cache = {}
 

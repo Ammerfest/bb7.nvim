@@ -18,6 +18,7 @@ local pane_bindings = {
       { 'd', 'Delete chat' },
       { 'p', 'Toggle pin' },
       { 'u', 'Unlock chat' },
+      { 'm', 'Move to project/global' },
       { '<C-s>', 'Toggle project/global' },
     },
   },
