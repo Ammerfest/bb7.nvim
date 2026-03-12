@@ -321,6 +321,7 @@ local function render_text_segment(content, lines, role, first_line_of_part)
   local italic_hl = highlight.get_italic_hl(text_hl)
   local underline_hl = highlight.get_underline_hl(text_hl)
   local inline_code_hl = highlight.get_inline_code_hl(text_hl)
+  local bold_italic_hl = highlight.get_bold_italic_hl(text_hl)
   local first_line = first_line_of_part
 
   for _, line in ipairs(vim.split(content, '\n', { plain = true })) do
@@ -364,6 +365,7 @@ local function render_text_segment(content, lines, role, first_line_of_part)
       apply_style_regions(processed.italic_regions, italic_hl)
       apply_style_regions(processed.underline_regions, underline_hl)
       apply_style_regions(processed.code_regions, inline_code_hl)
+      apply_style_regions(processed.bold_italic_regions, bold_italic_hl)
 
       -- Update cumulative position (account for trimmed trailing space in wrap)
       cum_pos = cum_pos + wrapped_len
@@ -561,6 +563,7 @@ local function render_reasoning_part(part, lines, collapsed, reasoning_id, msg_i
     local italic_hl = highlight.get_italic_hl(text_hl)
     local underline_hl = highlight.get_underline_hl(text_hl)
     local inline_code_hl = highlight.get_inline_code_hl(text_hl)
+    local bold_italic_hl = highlight.get_bold_italic_hl(text_hl)
 
     for _, line in ipairs(vim.split(content, '\n', { plain = true })) do
       -- Process style markers (**bold**, *italic*, __underline__, `code`)
@@ -600,6 +603,7 @@ local function render_reasoning_part(part, lines, collapsed, reasoning_id, msg_i
         apply_style_regions(processed.italic_regions, italic_hl)
         apply_style_regions(processed.underline_regions, underline_hl)
         apply_style_regions(processed.code_regions, inline_code_hl)
+        apply_style_regions(processed.bold_italic_regions, bold_italic_hl)
 
         cum_pos = cum_pos + wrapped_len
         if cum_pos < #display_text then
@@ -909,7 +913,7 @@ function M.render()
         for _, wrapped_line in ipairs(wrapped) do
           local line_icon = first_line and error_icon or nil
           local line_icon_fg = first_line and error_icon_fg or nil
-          format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', true, line_icon, line_icon_fg)
+          format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', false, line_icon, line_icon_fg)
           first_line = false
         end
       end
@@ -978,7 +982,7 @@ function M.render()
       for _, wrapped_line in ipairs(wrapped) do
         local line_icon = first_err_line and error_icon or nil
         local line_icon_fg = first_err_line and error_icon_fg or nil
-        format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', true, line_icon, line_icon_fg)
+        format.add_styled_line(lines, wrapped_line, 'BB7ErrorBar', 'BB7ErrorText', false, line_icon, line_icon_fg)
         first_err_line = false
       end
     end
@@ -1011,6 +1015,7 @@ function M.render()
       local italic_hl = highlight.get_italic_hl(text_hl)
       local underline_hl = highlight.get_underline_hl(text_hl)
       local inline_code_hl = highlight.get_inline_code_hl(text_hl)
+      local bold_italic_hl = highlight.get_bold_italic_hl(text_hl)
       for _, line in ipairs(shared.state.stream_reasoning_lines) do
         local processed = format.process_bold_markers(line)
         local display_text = processed.display
@@ -1040,6 +1045,7 @@ function M.render()
           apply_style_regions(processed.italic_regions, italic_hl)
           apply_style_regions(processed.underline_regions, underline_hl)
           apply_style_regions(processed.code_regions, inline_code_hl)
+          apply_style_regions(processed.bold_italic_regions, bold_italic_hl)
 
           cum_pos = cum_pos + wrapped_len
           if cum_pos < #display_text then

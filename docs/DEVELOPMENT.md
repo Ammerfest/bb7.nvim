@@ -63,6 +63,14 @@ Logs are written under `~/.bb7/logs/` when either:
 - `BB7_DEBUG=1`, or
 - `~/.bb7/debug` exists.
 
-Backend logs: `bb7-YYYY-MM-DD_HH-MM-SS.log`  
+Backend logs: `bb7-YYYY-MM-DD_HH-MM-SS.log`
 Frontend logs: `bb7-nvim-YYYY-MM-DD_HH-MM-SS.log`
+
+## Mock / Placeholder Content
+
+Three commands populate the UI with mock data for visual testing (run from Neovim command mode while BB-7 is open):
+
+- **`:lua require('bb7.ui').set_screenshot_mode()`** — fills all panes with mock data (Godot signals conversation, chat list, file list, account balance). Used for GitHub release screenshots.
+- **`:lua require('bb7.panes.preview').set_mock_chat()`** — loads a comprehensive test chat into the preview pane (8 messages covering refactoring, error handling, logging, etc.). Tests thinking blocks and scrollbars.
+- **`:lua require('bb7.panes.preview').set_format_test_chat()`** — loads a formatting stress test into the preview pane. Tests bold, italic, underline, inline code, code blocks, consecutive actions grouping, and edge cases.
 

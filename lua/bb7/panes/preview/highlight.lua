@@ -33,6 +33,20 @@ function M.get_italic_hl(base_hl)
   return cache_key
 end
 
+-- Get or create a bold+italic variant of a highlight group
+function M.get_bold_italic_hl(base_hl)
+  if not base_hl then return 'Bold' end
+
+  local cache_key = base_hl .. '_BoldItalic'
+  if not shared.bold_hl_cache[cache_key] then
+    local base_def = vim.api.nvim_get_hl(0, { name = base_hl, link = false })
+    local def = vim.tbl_extend('force', base_def, { bold = true, italic = true })
+    vim.api.nvim_set_hl(0, cache_key, def)
+    shared.bold_hl_cache[cache_key] = true
+  end
+  return cache_key
+end
+
 -- Get or create an underline variant of a highlight group
 function M.get_underline_hl(base_hl)
   if not base_hl then return 'Underlined' end

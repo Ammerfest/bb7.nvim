@@ -324,6 +324,19 @@ function M.init(buf, win)
     end,
   })
 
+  -- Yank highlight with underline so the flash is visible on lines with custom bg.
+  -- The underline attribute passes through because BB-7's extmarks don't define it.
+  local yank_hl = 'BB7YankHighlight'
+  local inc_def = vim.api.nvim_get_hl(0, { name = 'IncSearch', link = false })
+  vim.api.nvim_set_hl(0, yank_hl, vim.tbl_extend('force', inc_def, { underline = true }))
+  vim.api.nvim_create_autocmd('TextYankPost', {
+    group = augroup,
+    buffer = buf,
+    callback = function()
+      vim.highlight.on_yank({ higroup = yank_hl })
+    end,
+  })
+
   render.render()
 end
 
@@ -544,6 +557,7 @@ function M.set_format_test_chat()
   state.chat = mock.get_format_test_chat()
   state.mode = 'chat'
   state.collapsed_reasoning = {}
+  state.send_error = 'Error: upstream provider returned 429 Too Many Requests\nRate limit exceeded. Please wait 30 seconds before retrying.'
   render.render()
   notify_title_changed()
 

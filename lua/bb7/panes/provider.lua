@@ -11,6 +11,8 @@ local state = {
   today_cost = nil,     -- Cached daily cost total (from CSV)
   session_cost = 0,     -- Accumulated cost this project session
   project_root = nil,   -- Project root directory
+  active_chat_global = false, -- true when the active chat is a global chat
+  has_active_chat = false,    -- true when any chat is active
   customization = nil,  -- { system_override, global_instructions, project_instructions, project_instructions_error }
   context_estimate = nil, -- Estimated token count for full context
   context_limit = nil,    -- Model context_length
@@ -118,6 +120,18 @@ local function render()
     return left
   end
 
+  -- Project line
+  local project_display = '-'
+  if state.has_active_chat and not state.active_chat_global and state.project_root then
+    local home = os.getenv('HOME')
+    if home and state.project_root:sub(1, #home) == home then
+      project_display = '~' .. state.project_root:sub(#home + 1)
+    else
+      project_display = state.project_root
+    end
+  end
+  table.insert(lines, ' Project: ' .. project_display)
+
   -- Compute integer-part width for decimal alignment across all three values
   local balance_amount = state.balance
     and (state.balance.total_credits - state.balance.total_usage) or nil
@@ -204,7 +218,7 @@ local function render()
     vim.api.nvim_buf_add_highlight(state.buf, ns, 'Comment', i, 0, 9)
   end
 
-  -- Context line warning highlight (line index 3)
+  -- Context line warning highlight (line index 4)
   if state.context_estimate and state.context_limit then
     local effective_limit = state.context_limit
     if state.max_completion and state.max_completion > 0 and state.max_completion < state.context_limit then
@@ -212,7 +226,7 @@ local function render()
     end
     if state.context_estimate > state.context_limit or state.context_estimate > effective_limit then
       -- Highlight the entire value portion in red (after the label)
-      vim.api.nvim_buf_add_highlight(state.buf, ns, 'BB7ErrorText', 3, 9, -1)
+      vim.api.nvim_buf_add_highlight(state.buf, ns, 'BB7ErrorText', 4, 9, -1)
     end
   end
 
@@ -279,9 +293,16 @@ function M.set_context_estimate(estimate, context_length, max_completion_tokens)
   render()
 end
 
--- Set chat data (no longer used for last cost display)
-function M.set_chat(_)
-  -- Usage line is now rendered in the preview pane directly from msg.usage
+-- Set chat data (no longer used for last cost display, but tracks active state)
+function M.set_chat(chat)
+  state.has_active_chat = (chat ~= nil)
+  render()
+end
+
+-- Set whether the active chat is global
+function M.set_active_chat_global(is_global)
+  state.active_chat_global = is_global
+  render()
 end
 
 -- Set project root for per-project session cost
@@ -368,6 +389,12 @@ function M.set_mock_data(data)
     state.context_estimate = data.context_estimate.estimate
     state.context_limit = data.context_estimate.context_length
     state.max_completion = data.context_estimate.max_completion_tokens
+  end
+  if data.has_active_chat ~= nil then
+    state.has_active_chat = data.has_active_chat
+  end
+  if data.active_chat_global ~= nil then
+    state.active_chat_global = data.active_chat_global
   end
   render()
 end

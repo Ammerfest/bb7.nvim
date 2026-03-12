@@ -637,6 +637,7 @@ function M.open()
       panes_preview.set_chat(chat)
       panes_context.set_chat(chat)
       panes_provider.set_chat(chat)
+      panes_provider.set_active_chat_global(panes_chats.is_viewing_global())
       panes_provider.refresh_customization()
       if chat then
         panes_input.set_chat_active(true)
@@ -920,7 +921,7 @@ function M.open()
     end
 
     -- Load chat list and restore active chat if backend has one
-    local function apply_chat_to_panes(chat)
+    local function apply_chat_to_panes(chat, is_global)
       panes_preview.set_chat(chat)
       -- During session restore, select the previously viewed file in context pane
       local context_opts = nil
@@ -929,6 +930,7 @@ function M.open()
       end
       panes_context.set_chat(chat, context_opts)
       panes_provider.set_chat(chat)
+      panes_provider.set_active_chat_global(is_global or false)
       panes_input.set_chat_active(true)
       panes_input.set_draft(chat.draft)
 
@@ -1000,7 +1002,7 @@ function M.open()
             client.request({ action = 'chat_get' }, function(chat, chat_err)
               if not chat_err and chat and chat.id then
                 panes_chats.set_active_by_id(chat.id)
-                apply_chat_to_panes(chat)
+                apply_chat_to_panes(chat, true)
               end
             end)
           end)
@@ -1320,6 +1322,8 @@ function M.set_screenshot_mode()
     balance = { total_credits = 25, total_usage = 7.45 },
     today_cost = 0.108,
     session_cost = 0.214,
+    has_active_chat = true,
+    active_chat_global = false,
     customization = {
       system_override = false,
       global_instructions = true,

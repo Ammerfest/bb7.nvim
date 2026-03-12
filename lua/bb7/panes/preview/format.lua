@@ -13,7 +13,8 @@ end
 
 -- Process a line for text style markers (**bold**, *italic*, __underline__, `code`)
 -- Returns: { display = "processed text", bold_regions = {}, italic_regions = {},
---            underline_regions = {}, code_regions = {} }
+--            underline_regions = {}, code_regions = {}, bold_italic_regions = {} }
+-- Nested markers inside **bold** (e.g. **contains *italic***) produce bold_italic_regions.
 -- Positions are byte offsets in the display string
 function M.process_bold_markers(text)
   local display = ''
@@ -21,6 +22,7 @@ function M.process_bold_markers(text)
   local italic_regions = {}
   local underline_regions = {}
   local code_regions = {}
+  local bold_italic_regions = {}
   local pos = 1
   local text_len = #text
 
@@ -81,11 +83,24 @@ function M.process_bold_markers(text)
         break
       end
       local region_start = #display
-      local styled_text = text:sub(earliest + 2, end_marker - 1)
-      display = display .. styled_text
+      local inner_text = text:sub(earliest + 2, end_marker - 1)
+      -- Process inner text for nested *italic* and `code` markers
+      -- These render as bold+italic (both highlights overlap)
+      local inner = M.process_bold_markers(inner_text)
+      display = display .. inner.display
       local region_end = #display
       if region_end > region_start then
         table.insert(bold_regions, { region_start, region_end })
+      end
+      -- Nested italic/code inside bold → bold+italic regions
+      for _, r in ipairs(inner.italic_regions) do
+        table.insert(bold_italic_regions, { r[1] + region_start, r[2] + region_start })
+      end
+      for _, r in ipairs(inner.code_regions) do
+        table.insert(bold_italic_regions, { r[1] + region_start, r[2] + region_start })
+      end
+      for _, r in ipairs(inner.underline_regions) do
+        table.insert(underline_regions, { r[1] + region_start, r[2] + region_start })
       end
       pos = end_marker + 2
 
@@ -155,6 +170,7 @@ function M.process_bold_markers(text)
     italic_regions = italic_regions,
     underline_regions = underline_regions,
     code_regions = code_regions,
+    bold_italic_regions = bold_italic_regions,
   }
 end
 
