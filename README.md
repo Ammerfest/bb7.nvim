@@ -107,10 +107,6 @@ Optional settings:
 5. **Review**: Responses appear in Preview. `gf` for file view, `gd` for diff
 6. **Apply**: In Files pane, `p` to apply a file or `P` for all
 
-### Chat Locking
-
-Each chat is locked while in use to prevent concurrent modification across Neovim instances. Locked chats are visually indicated and cannot be selected. Stale locks from crashed sessions are cleaned up automatically. Use `u` in the Chats pane to force-unlock a chat if needed.
-
 ### Commands
 
 | Command | Description |
@@ -149,6 +145,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 
 | Key | Action |
 |-----|--------|
+| `?` | Show keybindings |
 | `g1`-`g5` | Jump to pane by number |
 | `<Tab>` / `<S-Tab>` | Cycle panes |
 | `<Esc>` | Close BB-7 |
@@ -229,7 +226,9 @@ BB-7 doesn't include a built-in merge tool — use the diff tools you already kn
 
 Standard diff commands (`]c`/`[c` to jump, `do`/`dp` to obtain/put changes) work as expected.
 
-**Git workflow**: Apply all changes with `P`, then use your git client (lazygit, fugitive, etc.) to unstage hunks you don't want.
+### Chat Locking
+
+Each chat is locked while in use to prevent concurrent modification across Neovim instances. Locked chats are visually indicated and cannot be selected. Stale locks from crashed sessions are cleaned up automatically. Use `u` in the Chats pane to force-unlock a chat if needed.
 
 ## Global Chats
 
