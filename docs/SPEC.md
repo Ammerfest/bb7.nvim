@@ -65,7 +65,7 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
   "id": "abc123",
   "name": "physics-refactor",
   "created": "2025-01-19T22:00:00Z",
-  "model": "anthropic/claude-sonnet-4",
+  "model": "anthropic/claude-sonnet-4.6",
   "draft": "",
   "context_files": [
     {"path": "src/math.cs", "readonly": false, "external": false, "version": "a1b2c3d4"},
@@ -76,7 +76,7 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
     {
       "role": "user",
       "parts": [{"type": "text", "content": "Refactor to use ref parameters"}],
-      "model": "anthropic/claude-sonnet-4",
+      "model": "anthropic/claude-sonnet-4.6",
       "timestamp": "2025-01-19T22:01:00Z",
       "context_snapshot": [
         {"path": "src/math.cs", "file_id": "a1b2c3d4"},
@@ -85,7 +85,7 @@ Neovim starts BB-7 via `jobstart()`. One BB-7 process per Neovim instance. Proce
     },
     {
       "role": "assistant",
-      "model": "anthropic/claude-sonnet-4",
+      "model": "anthropic/claude-sonnet-4.6",
       "timestamp": "2025-01-19T22:01:05Z",
       "output_files": ["math.cs"],
       "parts": [
@@ -258,7 +258,7 @@ Implemented:
 {
   "api_key": "sk-or-...",
   "base_url": "https://openrouter.ai/api/v1",
-  "default_model": "anthropic/claude-sonnet-4",
+  "default_model": "anthropic/claude-sonnet-4.6",
   "title_model": "anthropic/claude-3-haiku",
   "explicit_cache_key": false,
   "auto_retry_partial_edits": false
@@ -270,8 +270,8 @@ Implemented:
 `~/.bb7/state.json` stores global application state:
 ```json
 {
-  "favorites": ["anthropic/claude-sonnet-4", "openai/gpt-4o"],
-  "last_model": "anthropic/claude-sonnet-4"
+  "favorites": ["anthropic/claude-sonnet-4.6", "openai/gpt-4o"],
+  "last_model": "anthropic/claude-sonnet-4.6"
 }
 ```
 
@@ -285,7 +285,7 @@ Model selection behavior:
 |-------|----------|---------|-------------|
 | `api_key` | Yes | - | OpenRouter API key |
 | `base_url` | No | `https://openrouter.ai/api/v1` | API base URL |
-| `default_model` | No | `anthropic/claude-sonnet-4` | Initial model for new chats (overrides last-used when explicitly set) |
+| `default_model` | No | `anthropic/claude-sonnet-4.6` | Initial model for new chats (overrides last-used when explicitly set) |
 | `title_model` | No | `anthropic/claude-3-haiku` | Model for title generation |
 | `allow_data_retention` | No | `true` | Allow providers that retain data transiently |
 | `allow_training` | No | `false` | Allow providers that train on user data |

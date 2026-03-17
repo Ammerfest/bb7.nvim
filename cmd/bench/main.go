@@ -302,9 +302,9 @@ type logEntry struct {
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: go run ./cmd/bench <model-id> [--mode=sr|sr_multi|anchored] [--test=N]\n")
-		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4\n")
-		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4 --mode=sr\n")
-		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4 --mode=sr --test=2\n")
+		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4.6\n")
+		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4.6 --mode=sr\n")
+		fmt.Fprintf(os.Stderr, "   eg: go run ./cmd/bench anthropic/claude-sonnet-4.6 --mode=sr --test=2\n")
 		os.Exit(1)
 	}
 	model := os.Args[1]

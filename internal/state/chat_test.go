@@ -1543,3 +1543,167 @@ func TestChatMoveToGlobalSetsFilesReadonly(t *testing.T) {
 		}
 	}
 }
+
+// TestChatMoveRoundTripRestoresWritable verifies that files forced readonly by
+// ChatMoveToGlobal become writable again after ChatMoveToProject.
+func TestChatMoveRoundTripRestoresWritable(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("round-trip", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Add a writable context file
+	if err := s.ContextAdd("main.go", "package main"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+
+	// Verify writable before move
+	cf := s.findContextFile("main.go")
+	if cf == nil {
+		t.Fatal("Expected to find main.go in context")
+	}
+	if cf.ReadOnly {
+		t.Fatal("Expected main.go to be writable before move")
+	}
+
+	s.SaveActiveChat()
+	s.ActiveChat = nil
+
+	// Move project → global → project
+	if err := s.ChatMoveToGlobal(chatID); err != nil {
+		t.Fatalf("ChatMoveToGlobal failed: %v", err)
+	}
+	if err := s.ChatMoveToProject(chatID); err != nil {
+		t.Fatalf("ChatMoveToProject failed: %v", err)
+	}
+
+	// After round-trip, the file should NOT be permanently stuck as readonly.
+	// The user should be able to toggle it back to writable.
+	cf = s.findContextFile("main.go")
+	if cf == nil {
+		t.Fatal("Expected to find main.go after round-trip")
+	}
+	if cf.External {
+		t.Error("Expected main.go to NOT be external after round-trip to project")
+	}
+
+	// Even if ReadOnly is still true from the global phase, toggling must work
+	if err := s.ContextSetReadOnly("main.go", false); err != nil {
+		t.Errorf("ContextSetReadOnly(false) should succeed after round-trip, got: %v", err)
+	}
+}
+
+// TestChatMoveToProjectConvertsExternalFilesBack verifies that files added
+// while in global scope (forced external+absolute) are converted back to
+// internal relative paths when the chat is moved to project scope.
+func TestChatMoveToProjectConvertsExternalFilesBack(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	// Create a global chat and add a file that's inside the project
+	chat, err := s.ChatNewGlobal("global-with-project-file", "")
+	if err != nil {
+		t.Fatalf("ChatNewGlobal failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Add file using absolute path (as global chats require)
+	absPath := filepath.Join(s.ProjectRoot, "main.go")
+	if err := s.ContextAdd(absPath, "package main"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+
+	// In global scope, file should be external and readonly
+	cf := s.findContextFile(absPath)
+	if cf == nil {
+		t.Fatal("Expected to find file in global chat context")
+	}
+	if !cf.External {
+		t.Error("Expected file to be external in global chat")
+	}
+	if !cf.ReadOnly {
+		t.Error("Expected file to be readonly in global chat")
+	}
+
+	s.SaveActiveChat()
+	s.ActiveChat = nil
+
+	// Move to project
+	if err := s.ChatMoveToProject(chatID); err != nil {
+		t.Fatalf("ChatMoveToProject failed: %v", err)
+	}
+
+	// After moving to project, the file is inside the project directory,
+	// so it should be converted to a relative internal path and be writable.
+	cf = s.findContextFile("main.go")
+	if cf == nil {
+		// Also check absolute path in case conversion didn't happen
+		cf = s.findContextFile(absPath)
+		if cf != nil {
+			t.Errorf("File still has absolute path %s instead of relative 'main.go'", absPath)
+		} else {
+			t.Fatal("File not found under either relative or absolute path after move to project")
+		}
+	}
+	if cf != nil {
+		if cf.External {
+			t.Error("Expected file to NOT be external after move to project (it's inside project dir)")
+		}
+		// Should be toggleable to writable
+		if err := s.ContextSetReadOnly(cf.Path, false); err != nil {
+			t.Errorf("ContextSetReadOnly(false) should work for project-internal file, got: %v", err)
+		}
+	}
+}
+
+// TestChatMoveRoundTripReadonlyToggle verifies the full scenario: create project
+// chat with writable file, move to global (files forced readonly), move back to
+// project, then toggle readonly off. This is the exact user-reported bug.
+func TestChatMoveRoundTripReadonlyToggle(t *testing.T) {
+	s := setupBothScopesState(t)
+
+	chat, err := s.ChatNew("toggle-test", "")
+	if err != nil {
+		t.Fatalf("ChatNew failed: %v", err)
+	}
+	chatID := chat.ID
+
+	// Add writable and readonly files
+	if err := s.ContextAdd("writable.go", "package w"); err != nil {
+		t.Fatalf("ContextAdd failed: %v", err)
+	}
+	if err := s.ContextAddWithReadOnly("locked.go", "package l", true); err != nil {
+		t.Fatalf("ContextAddWithReadOnly failed: %v", err)
+	}
+
+	s.SaveActiveChat()
+	s.ActiveChat = nil
+
+	// Round-trip: project → global → project
+	if err := s.ChatMoveToGlobal(chatID); err != nil {
+		t.Fatalf("ChatMoveToGlobal failed: %v", err)
+	}
+	if err := s.ChatMoveToProject(chatID); err != nil {
+		t.Fatalf("ChatMoveToProject failed: %v", err)
+	}
+
+	// writable.go was originally writable — user should be able to make it writable again
+	if err := s.ContextSetReadOnly("writable.go", false); err != nil {
+		t.Errorf("Failed to make writable.go writable after round-trip: %v", err)
+	}
+
+	// locked.go was originally readonly — toggling to writable should also work
+	// (user explicitly chose readonly, but should still be able to change their mind)
+	if err := s.ContextSetReadOnly("locked.go", false); err != nil {
+		t.Errorf("Failed to make locked.go writable after round-trip: %v", err)
+	}
+
+	// Verify both files are not marked as external
+	for _, f := range s.ActiveChat.ContextFiles {
+		if f.External {
+			t.Errorf("File %s should not be external after round-trip to project", f.Path)
+		}
+	}
+}

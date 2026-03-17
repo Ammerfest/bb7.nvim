@@ -49,7 +49,7 @@ Section lines are 1-indexed, inclusive. Sections are always read-only.
 ### Messaging
 
 ```json
-{"request_id": "21", "action": "send", "content": "Refactor to use ref parameters", "model": "anthropic/claude-sonnet-4"}
+{"request_id": "21", "action": "send", "content": "Refactor to use ref parameters", "model": "anthropic/claude-sonnet-4.6"}
 ```
 
 The `model` field is optional; if omitted, uses the default model from config.
@@ -178,7 +178,7 @@ The `thinking` type delivers reasoning/thinking content from models that support
 ### Chat Details
 
 ```json
-{"type": "chat", "request_id": "5", "id": "abc123", "name": "physics-refactor", "model": "anthropic/claude-sonnet-4", "draft": "", "messages": [
+{"type": "chat", "request_id": "5", "id": "abc123", "name": "physics-refactor", "model": "anthropic/claude-sonnet-4.6", "draft": "", "messages": [
   {"role": "user", "parts": [{"type": "text", "content": "..."}], "timestamp": "...", "context_snapshot": [
     {"path": "math.cs", "file_id": "a1b2c3d4"},
     {"path": "utils.cs", "file_id": "e5f6a7b8", "start_line": 10, "end_line": 50}
@@ -258,7 +258,7 @@ Context warnings indicate files from the original context snapshot that have cha
 ```json
 {"type": "models", "models": [
   {
-    "id": "anthropic/claude-sonnet-4",
+    "id": "anthropic/claude-sonnet-4.6",
     "name": "Claude Sonnet 4",
     "context_length": 200000,
     "supports_reasoning": true,

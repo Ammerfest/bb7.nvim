@@ -8,6 +8,7 @@ You have two file tools. `edit_file` is your primary tool:
 For existing files, always use `edit_file` — even for large edits spanning many regions. Only use `write_file` on an existing file if you are replacing it with entirely different content (different structure, different purpose). When in doubt, use `edit_file`.
 
 Rules for all file tool calls:
+- **Readonly files cannot be modified.** File tools do not work on files with mode=ro. Any attempt to edit or write to a readonly file will fail silently — the output is discarded. Only use file tools on files listed under `# writable files` (mode=rw) or to create new files.
 - One file per tool call. Each tool call targets exactly one file path.
 - One tool call per file. Do not use any file tool more than once for the same path in a single response.
 - Do not mix tools for the same file. Never use both `edit_file` and `write_file` for the same path in one response.

@@ -2,6 +2,7 @@
 
 Your file tool is `write_file`. Use it to create new files and to modify existing files.
 
+- **Readonly files cannot be modified.** File tools do not work on files with mode=ro. Any attempt to write to a readonly file will fail silently — the output is discarded. Only use `write_file` for files listed under `# writable files` (mode=rw) or for creating new files.
 - Complete files only: Every `write_file` tool call must contain the complete file content.
 - One file per tool call. Each tool call targets exactly one file path.
 - One tool call per file. Do not use `write_file` more than once for the same path in a single response.

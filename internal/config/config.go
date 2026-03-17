@@ -65,7 +65,7 @@ func LoadFrom(path string) (*Config, error) {
 	}
 	cfg.DefaultModelExplicit = cfg.DefaultModel != ""
 	if cfg.DefaultModel == "" {
-		cfg.DefaultModel = "anthropic/claude-sonnet-4"
+		cfg.DefaultModel = "anthropic/claude-sonnet-4.6"
 	}
 	if cfg.TitleModel == "" {
 		cfg.TitleModel = "anthropic/claude-3-haiku"

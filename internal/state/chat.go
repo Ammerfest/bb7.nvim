@@ -51,7 +51,7 @@ func (s *State) ChatNew(name, model string) (*Chat, error) {
 	}
 
 	if model == "" {
-		model = "anthropic/claude-sonnet-4"
+		model = "anthropic/claude-sonnet-4.6"
 	}
 
 	chat := &Chat{
@@ -1161,7 +1161,7 @@ func (s *State) ChatNewGlobal(name, model string) (*Chat, error) {
 	}
 
 	if model == "" {
-		model = "anthropic/claude-sonnet-4"
+		model = "anthropic/claude-sonnet-4.6"
 	}
 
 	chat := &Chat{
@@ -1708,10 +1708,24 @@ func (s *State) ChatMoveToProject(id string) error {
 	saveActiveChatIDAt(s.globalChatsDir(), "")
 	s.saveActiveChatID("")
 
-	// Touch timestamp so moved chat sorts first, then update indexes
+	// Touch timestamp so moved chat sorts first, convert external files that
+	// are inside the project back to internal relative paths, then update indexes.
 	chatPath := filepath.Join(dstDir, "chat.json")
 	if chat, err := loadChatFrom(chatPath); err == nil {
 		chat.Created = time.Now()
+		for i := range chat.ContextFiles {
+			cf := &chat.ContextFiles[i]
+			if cf.External && filepath.IsAbs(cf.Path) && s.ProjectRoot != "" {
+				within, err := IsWithinDir(s.ProjectRoot, cf.Path)
+				if err == nil && within {
+					if rel, err := RelativeToBase(s.ProjectRoot, cf.Path); err == nil {
+						cf.Path = rel
+						cf.External = false
+						cf.ReadOnly = false
+					}
+				}
+			}
+		}
 		saveChatAt(dstDir, chat)
 		removeChatIndexEntryAt(s.globalChatsDir(), id)
 		s.updateChatIndexEntry(chat)

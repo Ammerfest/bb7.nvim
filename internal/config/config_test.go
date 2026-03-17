@@ -62,7 +62,7 @@ func TestLoadFrom(t *testing.T) {
 		if cfg.BaseURL != "https://openrouter.ai/api/v1" {
 			t.Errorf("BaseURL = %q, want default", cfg.BaseURL)
 		}
-		if cfg.DefaultModel != "anthropic/claude-sonnet-4" {
+		if cfg.DefaultModel != "anthropic/claude-sonnet-4.6" {
 			t.Errorf("DefaultModel = %q, want default", cfg.DefaultModel)
 		}
 		if cfg.DefaultModelExplicit {

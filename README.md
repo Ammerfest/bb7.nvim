@@ -89,7 +89,7 @@ Optional settings:
 ```json
 {
   "api_key": "sk-or-v1-...",
-  "default_model": "anthropic/claude-sonnet-4",
+  "default_model": "anthropic/claude-sonnet-4.6",
   "title_model": "anthropic/claude-3-haiku",
   "explicit_cache_key": false
 }
@@ -106,6 +106,7 @@ Optional settings:
 4. **Chat**: Write in the Input pane (`g5`), send with `<S-CR>`
 5. **Review**: Responses appear in Preview. `gf` for file view, `gd` for diff
 6. **Apply**: In Files pane, `p` to apply a file or `P` for all
+7. **Sync**: After editing applied files locally, `u`/`U` in Files pane to update context
 
 ### Commands
 
@@ -123,6 +124,7 @@ Optional settings:
 | `:BB7Chat` | Switch preview pane to chat mode |
 | `:BB7File` | Switch preview pane to file mode |
 | `:BB7DiffLocal` | Open vim native diff for partial apply |
+| `:BB7Split` | Open a lightweight input split without the full UI |
 | `:BB7Search` | Search chats via Telescope (requires Telescope) |
 | `:BB7EditInstructions [level]` | Edit instructions file (project/global) |
 | `:BB7Version` | Show backend version |
@@ -151,6 +153,8 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `<Esc>` | Close BB-7 |
 | `<C-c>` | Close BB-7 |
 | `<C-x>` | Cancel active stream |
+| `gc` / `gf` / `gd` | Switch to chat / file / diff mode |
+| `zd` | Toggle full diff (chunked / full file) |
 
 **Chats [1]:**
 
@@ -163,6 +167,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `r` | Rename chat |
 | `<C-s>` | Toggle project/global chats |
 | `u` | Force-unlock a locked chat |
+| `m` | Move chat between project/global |
 
 **Files [2]:**
 
@@ -175,6 +180,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `r` | Toggle read-only |
 | `p` | Apply file to local filesystem |
 | `P` | Apply all modified files |
+| `<C-n>` / `<C-p>` | Cycle to next / previous file |
 
 **Preview [4]:**
 
@@ -186,7 +192,17 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `<C-f>` | Fork chat from current message |
 | `<C-e>` | Edit current user message |
 | `<C-r>` | New chat with current context files |
-| `gc` / `gf` / `gd` | Switch to chat / file / diff mode |
+| `K` | Show message info popup |
+| `<C-n>` / `<C-p>` | Cycle to next / previous file |
+
+**Info [3]:**
+
+| Key | Action |
+|-----|--------|
+| `r` | Refresh balance |
+| `R` | Reset session cost |
+| `<C-g>` | Edit global instructions |
+| `<C-p>` | Edit project instructions |
 
 **Input [5]:**
 
@@ -196,7 +212,7 @@ Context management works from anywhere — you don't need the BB-7 UI open:
 | `<S-CR>` (insert) | Send message |
 | `M` (normal) | Open model picker |
 | `R` (normal) | Cycle reasoning effort |
-| `gc` / `gf` / `gd` | Switch preview mode |
+| `<C-n>` / `<C-p>` | Cycle to next / previous file |
 
 The send key can be changed with `vim.g.bb7_send_key = 'enter'` (makes `<CR>` send in insert mode, `<S-CR>` for newlines).
 
@@ -248,7 +264,7 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for all options, including hi
 
 ## Models
 
-Default: `anthropic/claude-sonnet-4`
+Default: `anthropic/claude-sonnet-4.6`
 
 Open the model picker with `M` in the Input pane or `:BB7Model`. Any OpenRouter model with tool support works. Favorite models (toggle with `<C-f>` in picker) appear first.
 

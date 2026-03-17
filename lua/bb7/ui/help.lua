@@ -32,6 +32,8 @@ local pane_bindings = {
       { 'p', 'Put (apply) file' },
       { 'P', 'Put all' },
       { 'r', 'Toggle read-only' },
+      { '<C-n>', 'Next file' },
+      { '<C-p>', 'Previous file' },
     },
   },
   [3] = { -- Info
@@ -55,6 +57,8 @@ local pane_bindings = {
       { '<C-f>', 'Fork chat' },
       { '<C-e>', 'Edit message' },
       { '<C-r>', 'Reuse files in new chat' },
+      { '<C-n>', 'Next file' },
+      { '<C-p>', 'Previous file' },
     },
   },
   [5] = { -- Input
@@ -64,6 +68,8 @@ local pane_bindings = {
       { '<S-CR>', 'Send (insert mode)' },
       { 'M', 'Model picker' },
       { 'R', 'Cycle reasoning level' },
+      { '<C-n>', 'Next file' },
+      { '<C-p>', 'Previous file' },
     },
   },
 }
@@ -75,8 +81,6 @@ local global_bindings = {
     { 'gf', 'File focus' },
     { 'gd', 'Diff focus' },
     { 'zd', 'Toggle full diff' },
-    { '<C-n>', 'Next file' },
-    { '<C-p>', 'Previous file' },
     { '<C-d>', 'Scroll preview down' },
     { '<C-u>', 'Scroll preview up' },
     { '<C-x>', 'Cancel request' },

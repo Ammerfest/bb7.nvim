@@ -71,12 +71,12 @@ Configure the default chat model and the model used for auto-generating chat tit
 ```json
 {
   "api_key": "sk-or-...",
-  "default_model": "anthropic/claude-sonnet-4",
+  "default_model": "anthropic/claude-sonnet-4.6",
   "title_model": "anthropic/claude-3-haiku"
 }
 ```
 
-**`default_model`** (default: `anthropic/claude-sonnet-4`) — The initial model for new chats. When explicitly set, this takes priority over the last-used model; when not set, new chats inherit the last-used model. You can always override per-message with the model picker (`M` in the Input pane).
+**`default_model`** (default: `anthropic/claude-sonnet-4.6`) — The initial model for new chats. When explicitly set, this takes priority over the last-used model; when not set, new chats inherit the last-used model. You can always override per-message with the model picker (`M` in the Input pane).
 
 **`title_model`** (default: `anthropic/claude-3-haiku`) — The model used to auto-generate chat titles after the first message. A cheap, fast model is recommended.
 
@@ -163,6 +163,7 @@ Override any `BB7*` highlight group with `vim.api.nvim_set_hl()`. BB-7 sets sens
 | `BB7AssistantActionText` | `Comment` | Assistant action text |
 | `BB7SystemMessageBar` | Invisible | Left bar on system messages |
 | `BB7SystemMessageText` | `Comment` | System message text |
+| `BB7InlineCode` | Italic, no fg | Inline code fg (bg inherited from message) |
 
 **Example — custom colors:**
 
@@ -202,13 +203,21 @@ vim.g.bb7_error_icon = vim.fn.nr2char(0xf071)             -- nf-fa-warning
 
 ### Inline Code
 
-Text wrapped in backticks (`` `like this` ``) is rendered in italic with backticks hidden. To give inline code a distinct color, set `vim.g.bb7_inline_code_fg`:
+Text wrapped in backticks (`` `like this` ``) is rendered in italic with backticks hidden. To give inline code a distinct color, override the `BB7InlineCode` highlight group (only the `fg` is used — the background is inherited from the surrounding message):
 
 ```lua
-vim.g.bb7_inline_code_fg = '#c4a000'  -- hex color
+vim.api.nvim_set_hl(0, 'BB7InlineCode', { fg = '#c4a000' })
 ```
 
-When not set, inline code uses the same foreground as the surrounding text (italic only).
+When no `fg` is set, inline code uses the same foreground as the surrounding text (italic only).
+
+### Send Key
+
+By default, `<S-CR>` (Shift+Enter) sends messages in insert mode and `<CR>` inserts newlines. To swap this:
+
+```lua
+vim.g.bb7_send_key = 'enter'  -- <CR> sends, <S-CR> inserts newlines
+```
 
 ### Bar Character, Diff, and Spinner
 
@@ -244,7 +253,7 @@ require('bb7').setup({
 
 ## Statusline Indicator
 
-BB-7 provides a statusline API that shows streaming/unread state when using the split input view (`:BB7Split`). The indicator appears when a request is in-flight or a response is waiting to be read, and clears when the full UI is opened.
+BB-7 provides a statusline API that shows streaming/unread state. The indicator appears when a request is in-flight or a response is waiting to be read, and clears when the full UI is opened.
 
 ### Configuration
 

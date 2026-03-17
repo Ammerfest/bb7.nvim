@@ -894,12 +894,17 @@ function M.setup(opts)
     desc = 'Open vim native diff for partial apply (local vs LLM output)',
   })
 
-  -- BB7Search - Search chats using Telescope (only if Telescope is available)
+  -- BB7Search - Search chats using snacks.nvim picker or Telescope
+  local has_snacks_picker = pcall(require, 'snacks')
   local has_telescope = pcall(require, 'telescope')
-  if has_telescope then
+  if has_snacks_picker then
+    vim.api.nvim_create_user_command('BB7Search', function()
+      require('bb7.snacks').search_chats()
+    end, { desc = 'Search BB-7 chats' })
+  elseif has_telescope then
     vim.api.nvim_create_user_command('BB7Search', function()
       require('bb7.telescope').search_chats()
-    end, { desc = 'Search BB-7 chats (requires Telescope)' })
+    end, { desc = 'Search BB-7 chats' })
   end
 
   -- BB7EditInstructions [level] - Edit instructions file
@@ -1172,6 +1177,9 @@ function M.setup_highlights()
   -- System messages (fork warnings, etc.): hint/info style
   vim.api.nvim_set_hl(0, 'BB7SystemMessageBar', { fg = get_fg('DiagnosticHint') })
   vim.api.nvim_set_hl(0, 'BB7SystemMessageText', { fg = get_fg('Comment') })
+
+  -- Inline code: italic, no fg override by default (inherits from message text)
+  vim.api.nvim_set_hl(0, 'BB7InlineCode', { italic = true })
 
   -- Statusline indicators (fg only — bg inherited from statusline section)
   local status_cfg = (config.status or {})

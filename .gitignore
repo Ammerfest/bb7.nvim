@@ -39,6 +39,9 @@ go.work.sum
 /bench
 cmd/bench/logs/
 
+# Claude Code
+.claude/
+
 # Editor/IDE
 # .idea/
 # .vscode/
