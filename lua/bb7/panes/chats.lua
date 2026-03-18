@@ -634,8 +634,11 @@ function M.refresh(callback)
       chat._sort_idx = nil
     end
 
-    -- Find the active chat's new position after sorting
+    -- Find the active chat's new position after sorting.
+    -- Reset first so stale index doesn't persist when the active chat
+    -- belongs to the other scope (global vs project).
     if active_chat_id then
+      state.active_idx = nil
       for i, chat in ipairs(state.chats) do
         if chat.id == active_chat_id then
           state.active_idx = i
