@@ -78,7 +78,7 @@ Configure the default chat model and the model used for auto-generating chat tit
 
 **`default_model`** (default: `anthropic/claude-sonnet-4.6`) — The initial model for new chats. When explicitly set, this takes priority over the last-used model; when not set, new chats inherit the last-used model. You can always override per-message with the model picker (`M` in the Input pane).
 
-**`title_model`** (default: `anthropic/claude-3-haiku`) — The model used to auto-generate chat titles after the first message. A cheap, fast model is recommended.
+**`title_model`** (optional, no default) — The model used to auto-generate chat titles after the first message. When set, BB-7 sends the first user message to this model to generate a short descriptive title. When not set, no automatic title generation occurs and chats keep their default timestamp name. A cheap, fast model is recommended (e.g. `anthropic/claude-3-haiku`). You can always manually rename chats with `r` or regenerate a title with `R` in the Chats pane.
 
 ## Provider Privacy
 

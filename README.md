@@ -74,26 +74,23 @@ cd ~/.local/share/nvim/lazy/bb7
 go build -o bb7 ./cmd/bb7
 ```
 
-### API Key
+### Configuration
 
 ```bash
 mkdir -p ~/.config/bb7
 cat > ~/.config/bb7/config.json << 'EOF'
 {
-  "api_key": "sk-or-v1-your-key-here"
+  "api_key": "sk-or-v1-your-key-here",
+  "default_model": "anthropic/claude-sonnet-4.6",
+  "title_model": "anthropic/claude-3-haiku"
 }
 EOF
 ```
 
-Optional settings:
-```json
-{
-  "api_key": "sk-or-v1-...",
-  "default_model": "anthropic/claude-sonnet-4.6",
-  "title_model": "anthropic/claude-3-haiku",
-  "explicit_cache_key": false
-}
-```
+`default_model` (optional) sets the model for new chats. If not provided, new chats start with the last used model.
+`title_model` (optional) sets the model for auto-generating chat titles. If not provided, no titles are generated. 
+
+See [Configuration](docs/CONFIGURATION.md) for all options.
 
 ## Usage
 
@@ -106,7 +103,7 @@ Optional settings:
 4. **Chat**: Write in the Input pane (`g5`), send with `<S-CR>`
 5. **Review**: Responses appear in Preview. `gf` for file view, `gd` for diff
 6. **Apply**: In Files pane, `p` to apply a file or `P` for all
-7. **Sync**: After editing applied files locally, `u`/`U` in Files pane to update context
+7. **Sync**: After manually editing files previously added to the context, `u`/`U` in Files pane to update context
 
 ### Commands
 

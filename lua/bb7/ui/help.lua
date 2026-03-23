@@ -15,6 +15,7 @@ local pane_bindings = {
       { '<CR>', 'Select chat' },
       { 'n', 'New chat' },
       { 'r', 'Rename chat' },
+      { 'R', 'Regenerate title' },
       { 'd', 'Delete chat' },
       { 'p', 'Toggle pin' },
       { 'u', 'Unlock chat' },

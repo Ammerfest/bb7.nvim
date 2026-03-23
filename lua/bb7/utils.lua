@@ -17,6 +17,17 @@ function M.normalize_line_endings(content)
   return content:gsub('\r\n', '\n'):gsub('\r', '\n')
 end
 
+-- Ensure a non-empty string ends with a newline.
+-- Used to normalize content before diffing so vim.diff doesn't report
+-- a spurious "no newline at end of file" difference.
+function M.ensure_trailing_newline(content)
+  if not content or content == '' then return content or '' end
+  if content:sub(-1) ~= '\n' then
+    return content .. '\n'
+  end
+  return content
+end
+
 -- Compare two content strings with line ending normalization
 -- Returns true if they are the same (ignoring line ending differences and trailing newlines)
 function M.contents_equal(a, b)

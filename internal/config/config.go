@@ -67,9 +67,8 @@ func LoadFrom(path string) (*Config, error) {
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = "anthropic/claude-sonnet-4.6"
 	}
-	if cfg.TitleModel == "" {
-		cfg.TitleModel = "anthropic/claude-3-haiku"
-	}
+	// TitleModel intentionally has no default — title generation is opt-in.
+	// Users must explicitly set title_model in config to enable it.
 	if cfg.AllowDataRetention == nil {
 		t := true
 		cfg.AllowDataRetention = &t

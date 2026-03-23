@@ -286,7 +286,7 @@ Model selection behavior:
 | `api_key` | Yes | - | OpenRouter API key |
 | `base_url` | No | `https://openrouter.ai/api/v1` | API base URL |
 | `default_model` | No | `anthropic/claude-sonnet-4.6` | Initial model for new chats (overrides last-used when explicitly set) |
-| `title_model` | No | `anthropic/claude-3-haiku` | Model for title generation |
+| `title_model` | No | *(none)* | Model for title generation (opt-in) |
 | `allow_data_retention` | No | `true` | Allow providers that retain data transiently |
 | `allow_training` | No | `false` | Allow providers that train on user data |
 | `auto_retry_partial_edits` | No | `false` | If true, perform one hidden repair attempt after partial `edit_file` apply failures |
@@ -342,13 +342,14 @@ Uses `cl100k_base` tokenizer for accurate counts.
 
 ## Auto-Generated Titles
 
-Chat titles are automatically generated after the first message exchange:
-1. After receiving the first assistant response, a background request is sent
-2. Uses the configured `title_model` (fast/cheap model)
-3. Generates a 3-6 word descriptive title
-4. UI receives `title_updated` event to refresh display
+Chat titles can be automatically generated after the first message exchange, but only if `title_model` is configured (opt-in):
+1. After receiving the first assistant response, a background request is sent to the `title_model`
+2. Generates a 3-6 word descriptive title
+3. UI receives `title_updated` event to refresh display
 
-Default name format: `"Chat YYYY-MM-DD HH:MM"` (until title is generated)
+When `title_model` is not set, no automatic title generation occurs. Users can always manually rename chats (`r` in the Chats pane) or regenerate a title (`R`, requires `title_model`).
+
+Default name format: `"Chat YYYY-MM-DD HH:MM"` (until renamed or title is generated)
 
 ## Initialization & State Machine
 

@@ -65,6 +65,12 @@ function M.render_diff()
   -- Get new content: LLM output
   local new_content = file.output_content or ''
 
+  -- Normalize trailing newlines: ensure both sides end with \n so vim.diff
+  -- doesn't report a spurious "no newline at end of file" difference.
+  local utils = require('bb7.utils')
+  old_content = utils.ensure_trailing_newline(old_content)
+  new_content = utils.ensure_trailing_newline(new_content)
+
   -- Compute diff using vim.diff (backed by xdiff, same as git)
   -- Use full file context when diff_expanded is set
   local ui_shared = require('bb7.ui.shared')

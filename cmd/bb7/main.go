@@ -2185,24 +2185,26 @@ func handleSend(reqID string, req map[string]any) {
 	}
 	stateMu.Unlock()
 
-	// Auto-generate title after first message exchange
-	stateMu.Lock()
-	if appState.ActiveChat != nil {
-		userMsgCount := 0
-		firstUserContent := ""
-		for _, msg := range appState.ActiveChat.Messages {
-			if msg.Role == "user" {
-				userMsgCount++
-				if userMsgCount == 1 {
-					firstUserContent = state.MessageText(msg)
+	// Auto-generate title after first message exchange (only if title_model is configured)
+	if appConfig.TitleModel != "" {
+		stateMu.Lock()
+		if appState.ActiveChat != nil {
+			userMsgCount := 0
+			firstUserContent := ""
+			for _, msg := range appState.ActiveChat.Messages {
+				if msg.Role == "user" {
+					userMsgCount++
+					if userMsgCount == 1 {
+						firstUserContent = state.MessageText(msg)
+					}
 				}
 			}
+			if userMsgCount == 1 && firstUserContent != "" {
+				autoTitleGenerateAsync(appState.ActiveChat.ID, firstUserContent, appState.ActiveChat.ContextFiles)
+			}
 		}
-		if userMsgCount == 1 && firstUserContent != "" {
-			autoTitleGenerateAsync(appState.ActiveChat.ID, firstUserContent, appState.ActiveChat.ContextFiles)
-		}
+		stateMu.Unlock()
 	}
-	stateMu.Unlock()
 
 	// Log usage to CSV
 	appendUsageCSV(model, lastUsage)
@@ -2327,15 +2329,19 @@ func handleGenerateTitle(reqID string, req map[string]any) {
 		return
 	}
 
+	if appConfig.TitleModel == "" {
+		respond(reqID, map[string]any{"type": "error", "message": "title_model not configured"})
+		return
+	}
+
 	// Acknowledge immediately - title generation happens async
 	respond(reqID, map[string]any{"type": "ok"})
 
-	stateMu.Lock()
+	// stateMu is already held by the caller (actionUsesChatState)
 	var contextFiles []state.ContextFile
 	if appState.ActiveChat != nil && appState.ActiveChat.ID == chatID {
 		contextFiles = appState.ActiveChat.ContextFiles
 	}
-	stateMu.Unlock()
 
 	autoTitleGenerateAsync(chatID, content, contextFiles)
 }

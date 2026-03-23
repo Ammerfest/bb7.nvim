@@ -409,6 +409,54 @@ local function rename_chat()
   select_chat(prompt_rename)
 end
 
+-- Regenerate title for a chat (requires title_model in config)
+local function regenerate_title()
+  local log = require('bb7.log')
+  if #state.chats == 0 then return end
+  sync_selection_with_cursor()
+  local chat = state.chats[state.selected_idx]
+  if not chat then return end
+
+  local function do_regenerate()
+    log.info("Regenerating title for '" .. (state.active_chat.name or '') .. "'")
+    client.request({ action = 'chat_get' }, function(response, err)
+      if err then
+        log.error('Failed to load chat: ' .. tostring(err))
+        return
+      end
+      local messages = response.messages or {}
+      local first_user_content = ''
+      for _, msg in ipairs(messages) do
+        if msg.role == 'user' then
+          for _, part in ipairs(msg.parts or {}) do
+            if part.type == 'text' and part.content and part.content ~= '' then
+              first_user_content = part.content
+              break
+            end
+          end
+          break
+        end
+      end
+      if first_user_content == '' then
+        log.error('No user message found for title generation')
+        return
+      end
+      client.generate_title(state.active_chat.id, first_user_content, function(_, gen_err)
+        if gen_err then
+          log.error('Failed to generate title: ' .. tostring(gen_err))
+        end
+      end)
+    end)
+  end
+
+  if state.active_chat and state.active_chat.id == chat.id then
+    do_regenerate()
+    return
+  end
+
+  select_chat(do_regenerate)
+end
+
 -- Delete the selected chat
 local function delete_chat()
   if #state.chats == 0 then return end
@@ -687,6 +735,7 @@ function M.setup_keymaps(buf)
   vim.keymap.set('n', '<CR>', select_chat, opts)
   vim.keymap.set('n', 'n', M.new_chat, opts)
   vim.keymap.set('n', 'r', rename_chat, opts)
+  vim.keymap.set('n', 'R', regenerate_title, opts)
   vim.keymap.set('n', 'd', delete_chat, opts)
   vim.keymap.set('n', 'p', toggle_pin_selected, opts)
   vim.keymap.set('n', '<C-s>', toggle_mode, opts)
