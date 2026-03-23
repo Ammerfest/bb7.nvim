@@ -1246,9 +1246,12 @@ end
 
 -- Switch to a chat by ID (used by fork and search)
 -- Optional callback is called after switch completes
-function M.switch_chat(chat_id, callback)
+-- opts.global: if true, select as a global chat
+function M.switch_chat(chat_id, callback, opts)
   -- Select the chat in the backend
-  client.request({ action = 'chat_select', id = chat_id }, function(_, err)
+  local req = { action = 'chat_select', id = chat_id }
+  if opts and opts.global then req.global = true end
+  client.request(req, function(_, err)
     if err then
       log.error('Failed to select chat: ' .. err)
       return

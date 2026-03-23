@@ -217,9 +217,10 @@ function M.fork_chat()
 
     -- Switch to new chat and focus input pane
     local ui = require('bb7.ui')
+    local is_global = shared.state.chat and shared.state.chat.global
     ui.switch_chat(response.new_chat_id, function()
       ui.focus_input()
-    end)
+    end, is_global and { global = true } or nil)
   end)
 end
 
@@ -238,10 +239,13 @@ function M.reuse_files()
   end
 
   local client = require('bb7.client')
-  client.request({
+  local is_global = shared.state.chat.global
+  local req = {
     action = 'chat_new_with_context',
     source_chat_id = shared.state.chat.id,
-  }, function(response, err)
+  }
+  if is_global then req.global = true end
+  client.request(req, function(response, err)
     if err then
       log.error('Reuse files failed: ' .. err)
       return
@@ -254,7 +258,7 @@ function M.reuse_files()
     local ui = require('bb7.ui')
     ui.switch_chat(response.id, function()
       ui.focus_input()
-    end)
+    end, is_global and { global = true } or nil)
   end)
 end
 
