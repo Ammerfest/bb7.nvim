@@ -193,11 +193,13 @@ function M.fork_chat()
   panes_input.flush_draft()
 
   local client = require('bb7.client')
-  client.request({
+  local req = {
     action = 'fork_chat',
     chat_id = shared.state.chat.id,
     fork_message_index = msg_idx - 1,  -- Convert to 0-indexed
-  }, function(response, err)
+  }
+  if shared.state.chat.global then req.global = true end
+  client.request(req, function(response, err)
     if err then
       log.error('Fork failed: ' .. err)
       return
