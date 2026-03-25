@@ -318,6 +318,11 @@ local function setup_common_keymaps(pane_id, buf)
     M.close()
   end, opts)
 
+  -- Close with q (also prevents q: command-line window from breaking the float)
+  vim.keymap.set('n', 'q', function()
+    M.close()
+  end, opts)
+
   -- Close with C-c (works from any pane, any mode)
   vim.keymap.set({ 'n', 'i' }, '<C-c>', function()
     M.close()
