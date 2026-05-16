@@ -8,6 +8,8 @@ local render = require('bb7.panes.preview.render')
 -- Forward declaration for stop_spinner
 local stop_spinner
 
+local STREAM_RENDER_INTERVAL = 80
+
 -- Get the active spinner config for the current phase
 local function spinner_config()
   if shared.state.stream_receiving then
@@ -57,11 +59,58 @@ local function start_spinner_timer(interval)
     shared.state.spinner_frame = (shared.state.spinner_frame % cycle) + 1
     vim.schedule(function()
       -- Only render if preview is in chat mode (don't overwrite file/diff views)
-      if shared.state.mode == 'chat' then
+      if shared.state.mode == 'chat' and not shared.state.stream_render_timer then
         render.render()
       end
     end)
   end, { ['repeat'] = -1 })
+end
+
+local function stop_stream_render_timer()
+  if shared.state.stream_render_timer then
+    vim.fn.timer_stop(shared.state.stream_render_timer)
+    shared.state.stream_render_timer = nil
+  end
+end
+
+local function render_now()
+  stop_stream_render_timer()
+  if shared.state.mode == 'chat' then
+    render.render()
+  end
+end
+
+local function schedule_stream_render()
+  if shared.state.mode ~= 'chat' then
+    return
+  end
+  if shared.state.stream_render_timer then
+    return
+  end
+  shared.state.stream_render_timer = vim.fn.timer_start(STREAM_RENDER_INTERVAL, function()
+    shared.state.stream_render_timer = nil
+    vim.schedule(function()
+      if shared.state.streaming and shared.state.mode == 'chat' then
+        render.render()
+      end
+    end)
+  end)
+end
+
+local function append_chunk(lines, content)
+  if not content or content == '' then
+    return
+  end
+
+  if #lines == 0 then
+    table.insert(lines, '')
+  end
+
+  local parts = vim.split(content, '\n', { plain = true })
+  lines[#lines] = lines[#lines] .. parts[1]
+  for i = 2, #parts do
+    table.insert(lines, parts[i])
+  end
 end
 
 -- Start the spinner animation timer
@@ -109,7 +158,7 @@ function M.start_streaming(user_message)
   end
 
   start_spinner()
-  render.render()
+  render_now()
 end
 
 -- Append streaming content
@@ -125,22 +174,9 @@ function M.append_stream(content)
     end
   end
 
-  -- Split content by newlines and append
-  for char in content:gmatch('.') do
-    if char == '\n' then
-      table.insert(shared.state.stream_lines, '')
-    else
-      if #shared.state.stream_lines == 0 then
-        table.insert(shared.state.stream_lines, '')
-      end
-      shared.state.stream_lines[#shared.state.stream_lines] = shared.state.stream_lines[#shared.state.stream_lines] .. char
-    end
-  end
+  append_chunk(shared.state.stream_lines, content)
 
-  -- Only render if preview is in chat mode (don't overwrite file/diff views)
-  if shared.state.mode == 'chat' then
-    render.render()
-  end
+  schedule_stream_render()
 end
 
 -- Append reasoning streaming content
@@ -157,22 +193,9 @@ function M.append_reasoning_stream(content)
     end
   end
 
-  -- Split content by newlines and append
-  for char in content:gmatch('.') do
-    if char == '\n' then
-      table.insert(shared.state.stream_reasoning_lines, '')
-    else
-      if #shared.state.stream_reasoning_lines == 0 then
-        table.insert(shared.state.stream_reasoning_lines, '')
-      end
-      shared.state.stream_reasoning_lines[#shared.state.stream_reasoning_lines] = shared.state.stream_reasoning_lines[#shared.state.stream_reasoning_lines] .. char
-    end
-  end
+  append_chunk(shared.state.stream_reasoning_lines, content)
 
-  -- Only render if preview is in chat mode (don't overwrite file/diff views)
-  if shared.state.mode == 'chat' then
-    render.render()
-  end
+  schedule_stream_render()
 end
 
 -- End streaming mode (optionally with usage info)
@@ -198,6 +221,7 @@ function M.end_streaming(usage)
   end
 
   stop_spinner()
+  stop_stream_render_timer()
   -- The chat will be refreshed with the complete message
 end
 
@@ -217,6 +241,7 @@ function M.show_send_error(error_msg)
   shared.persistent.stream_start_time = nil
 
   stop_spinner()
+  stop_stream_render_timer()
 
   -- Schedule render so it runs in a clean event loop context
   -- (this function is called from a jobstart on_stdout callback)

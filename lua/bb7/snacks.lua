@@ -71,24 +71,27 @@ local function open_picker()
 
     finder = function(opts, ctx)
       local search = ctx.filter and ctx.filter.search or ''
+      local global_only = client.is_global_only()
 
       -- Return async function: receives `add` callback for each item
       return function(add)
         local async = ctx.async
         local results = {}
-        local pending = 2
+        local pending = global_only and 1 or 2
 
         vim.schedule(function()
-          -- Search project chats
-          client.request({ action = 'search_chats', query = search }, function(response, err)
-            if not err and type(response.results) == 'table' then
-              for _, chat in ipairs(response.results) do
-                table.insert(results, chat)
+          -- Search project chats (skip in global-only mode to avoid duplicates)
+          if not global_only then
+            client.request({ action = 'search_chats', query = search }, function(response, err)
+              if not err and type(response.results) == 'table' then
+                for _, chat in ipairs(response.results) do
+                  table.insert(results, chat)
+                end
               end
-            end
-            pending = pending - 1
-            if pending == 0 then async:resume() end
-          end)
+              pending = pending - 1
+              if pending == 0 then async:resume() end
+            end)
+          end
 
           -- Search global chats
           client.request({ action = 'search_chats', query = search, global = true }, function(response, err)
@@ -122,11 +125,29 @@ local function open_picker()
       local client = require('bb7.client')
       local buf = ctx.buf
       local is_global = item.chat.global
+      local search = ctx.picker:filter().search or ''
 
       local function set_lines(lines)
         vim.bo[buf].modifiable = true
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
         vim.bo[buf].modifiable = false
+      end
+
+      local function highlight_matches(lines)
+        if search == '' then return end
+        local lower_search = search:lower()
+        local ns = vim.api.nvim_create_namespace('bb7_preview_search')
+        vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+        for i, line in ipairs(lines) do
+          local lower_line = line:lower()
+          local start = 1
+          while true do
+            local s, e = lower_line:find(lower_search, start, true)
+            if not s then break end
+            vim.api.nvim_buf_add_highlight(buf, ns, 'SnacksPickerSearch', i - 1, s - 1, e)
+            start = e + 1
+          end
+        end
       end
 
       set_lines({ 'Loading...' })
@@ -153,7 +174,9 @@ local function open_picker()
               return
             end
 
-            set_lines(format_chat_preview(chat_data))
+            local lines = format_chat_preview(chat_data)
+            set_lines(lines)
+            highlight_matches(lines)
           end)
         end)
       end)
