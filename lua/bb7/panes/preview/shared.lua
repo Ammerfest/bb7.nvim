@@ -16,6 +16,7 @@ M.state = {
   on_title_changed = nil, -- Callback when title changes
   on_mode_changed = nil, -- Callback when mode changes
   spinner_timer = nil, -- Timer for spinner animation
+  stream_render_timer = nil, -- Timer for coalescing stream preview renders
   spinner_frame = 1,   -- Current spinner frame index
   collapsed_reasoning = {}, -- Set of collapsed reasoning block IDs (msg_idx:part_idx)
   reasoning_line_map = {}, -- Maps line number (1-indexed) to reasoning_id

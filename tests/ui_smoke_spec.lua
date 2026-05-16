@@ -2,6 +2,8 @@ local function stub_client()
   return {
     is_running = function() return true end,
     is_initialized = function() return true end,
+    is_global_only = function() return false end,
+    get_bin_path = function() return vim.v.progpath end,
     init = function(_, cb)
       if cb then cb({}, nil) end
     end,
@@ -83,7 +85,7 @@ describe('ui smoke', function()
 
     local preview = require('bb7.panes.preview')
     local hints = preview.get_hints()
-    assert.is_not_nil(hints:match('Next anchor'))
+    assert.is_not_nil(hints:match('Toggle'))
     assert.is_nil(hints:match('%[Chat%]'))
   end)
 end)
