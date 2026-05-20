@@ -26,6 +26,7 @@ M.state = {
   augroup = nil,
   picker_open = false, -- True when a picker/popup is open (suppresses auto-close)
   version = nil, -- Backend version string
+  previous_win = nil, -- Editor window that was focused before opening BB-7
 }
 
 -- Session state (persists across open/close within the same Neovim session)

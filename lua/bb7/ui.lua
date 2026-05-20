@@ -620,6 +620,8 @@ function M.open()
     return
   end
 
+  state.previous_win = vim.api.nvim_get_current_win()
+
   local current_layout = layout.calc_layout()
 
   -- Create all panes
@@ -1199,10 +1201,18 @@ function M.close()
     vim.api.nvim_win_close(state.hint_win, true)
   end
 
+  -- Restore the editor window that had focus before BB-7 opened. Without this,
+  -- Neovim chooses a fallback window after the floats close, which can vary by
+  -- version and local window state.
+  if state.previous_win and vim.api.nvim_win_is_valid(state.previous_win) then
+    pcall(vim.api.nvim_set_current_win, state.previous_win)
+  end
+
   -- Reset state
   state.panes = {}
   state.hint_win = nil
   state.hint_buf = nil
+  state.previous_win = nil
 end
 
 -- Toggle the UI

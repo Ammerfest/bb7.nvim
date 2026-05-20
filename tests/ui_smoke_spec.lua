@@ -78,6 +78,19 @@ describe('ui smoke', function()
     assert.is_true(win_count >= 6)
   end)
 
+  it('restores the previously focused editor window on close', function()
+    vim.cmd('only')
+    vim.cmd('vsplit')
+    local right_win = vim.api.nvim_get_current_win()
+
+    local ui = require('bb7.ui')
+    ui.open()
+    vim.wait(50)
+    ui.close()
+
+    assert.are.equal(right_win, vim.api.nvim_get_current_win())
+  end)
+
   it('preview hints omit mode prefixes', function()
     local ui = require('bb7.ui')
     ui.open()
